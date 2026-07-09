@@ -129,7 +129,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
                         key: ValueKey(activeGroup.id),
                         padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
                         itemCount: activeGroup.stocks.length,
-                        onReorder: controller.reorderStocks,
+                        onReorderItem: controller.reorderStocks,
                         proxyDecorator: (child, index, animation) {
                           return ScaleTransition(
                             scale: Tween<double>(begin: 1, end: 1.03).animate(animation),
@@ -247,7 +247,7 @@ class _GroupTabs extends StatelessWidget {
                     color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
                   ),
                   selectedColor: scheme.primary,
-                  backgroundColor: scheme.surfaceContainerHighest.withOpacity(0.55),
+                  backgroundColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                 );
               },
@@ -281,7 +281,7 @@ class _InlineError extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: scheme.errorContainer.withOpacity(0.45),
+        color: scheme.errorContainer.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Padding(
@@ -315,7 +315,7 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.auto_awesome_rounded, size: 58, color: scheme.primary.withOpacity(0.75)),
+            Icon(Icons.auto_awesome_rounded, size: 58, color: scheme.primary.withValues(alpha: 0.75)),
             const SizedBox(height: 14),
             Text(
               '这个分组还没有自选',

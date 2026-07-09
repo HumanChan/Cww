@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../../../core/utils/formatters.dart';
@@ -23,19 +21,21 @@ class StockCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isUp = stock.isUp;
-    final trendColor = isUp ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
+    final trendColor = isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
     final symbol = currencySymbol(stock);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
       decoration: BoxDecoration(
-        color: isFlashing ? scheme.primary.withOpacity(0.09) : scheme.surface,
+        color: isFlashing ? scheme.primary.withValues(alpha: 0.09) : scheme.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: scheme.outlineVariant.withOpacity(0.45)),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.45)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(Theme.of(context).brightness == Brightness.dark ? 0.20 : 0.06),
+            color: Colors.black.withValues(
+              alpha: Theme.of(context).brightness == Brightness.dark ? 0.20 : 0.06,
+            ),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -102,7 +102,7 @@ class StockCard extends StatelessWidget {
                   const SizedBox(height: 5),
                   DecoratedBox(
                     decoration: BoxDecoration(
-                      color: trendColor.withOpacity(0.10),
+                      color: trendColor.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Padding(
@@ -147,7 +147,7 @@ class _Badge extends StatelessWidget {
     final resolved = color ?? scheme.primary;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: resolved.withOpacity(0.10),
+        color: resolved.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Padding(

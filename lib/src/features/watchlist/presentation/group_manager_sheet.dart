@@ -53,7 +53,7 @@ class GroupManagerSheet extends ConsumerWidget {
               child: ReorderableListView.builder(
                 shrinkWrap: true,
                 itemCount: state.groups.length,
-                onReorder: controller.reorderGroups,
+                onReorderItem: controller.reorderGroups,
                 itemBuilder: (context, index) {
                   final group = state.groups[index];
                   return Padding(
@@ -61,7 +61,7 @@ class GroupManagerSheet extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(vertical: 5),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: scheme.surfaceContainerHighest.withOpacity(0.45),
+                        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
                         borderRadius: BorderRadius.circular(18),
                       ),
                       child: ListTile(

@@ -10,7 +10,6 @@ final watchlistControllerProvider =
     StateNotifierProvider<WatchlistController, WatchlistState>((ref) {
   final controller = WatchlistController(ref.watch(marketRepositoryProvider));
   controller.load();
-  ref.onDispose(controller.dispose);
   return controller;
 });
 
@@ -194,7 +193,6 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   }
 
   void reorderGroups(int oldIndex, int newIndex) {
-    if (newIndex > oldIndex) newIndex -= 1;
     final groups = [...state.groups];
     final moved = groups.removeAt(oldIndex);
     groups.insert(newIndex, moved);
@@ -218,7 +216,6 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   void reorderStocks(int oldIndex, int newIndex) {
     final active = state.activeGroup;
     if (active == null) return;
-    if (newIndex > oldIndex) newIndex -= 1;
     final stocks = [...active.stocks];
     final moved = stocks.removeAt(oldIndex);
     stocks.insert(newIndex, moved);

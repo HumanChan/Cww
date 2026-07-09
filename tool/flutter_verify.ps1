@@ -7,22 +7,34 @@ $ErrorActionPreference = "Stop"
 
 $flutter = Join-Path $FlutterRoot "bin\flutter.bat"
 if (-not (Test-Path $flutter)) {
-    throw "未找到 Flutter 命令：$flutter。请确认 SDK 已下载并解压完成。"
+    throw "Flutter command not found: $flutter. Please make sure the SDK is fully downloaded."
 }
 
-Write-Host "使用 Flutter：$flutter"
-& $flutter --version
+function Invoke-Flutter {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$FlutterArgs
+    )
 
-Write-Host "生成 Android/iOS 平台目录..."
-& $flutter create --platforms android,ios --org $Org .
+    & $flutter @FlutterArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Flutter command failed: flutter $($FlutterArgs -join ' ')"
+    }
+}
 
-Write-Host "获取依赖..."
-& $flutter pub get
+Write-Host "Using Flutter: $flutter"
+Invoke-Flutter --version
 
-Write-Host "静态分析..."
-& $flutter analyze
+Write-Host "Creating Android/iOS platform folders..."
+Invoke-Flutter create "--platforms=android,ios" --org $Org .
 
-Write-Host "运行测试..."
-& $flutter test
+Write-Host "Resolving dependencies..."
+Invoke-Flutter pub get
 
-Write-Host "验证完成。"
+Write-Host "Running static analysis..."
+Invoke-Flutter analyze
+
+Write-Host "Running tests..."
+Invoke-Flutter test
+
+Write-Host "Verification complete."

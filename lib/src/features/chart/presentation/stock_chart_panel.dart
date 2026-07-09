@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../market/domain/chart_models.dart';
@@ -28,277 +29,246 @@ class StockChartPanel extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 18),
-      child: CustomPaint(
-        painter: data.type == ChartType.intraday
-            ? _IntradayPainter(
-                points: data.intraday,
-                preClose: stock.preClose,
-                isUp: stock.isUp,
-                colorScheme: Theme.of(context).colorScheme,
-              )
-            : _KLinePainter(
-                points: data.kLine,
-                colorScheme: Theme.of(context).colorScheme,
-              ),
-        child: const SizedBox.expand(),
-      ),
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+      child: data.type == ChartType.intraday
+          ? _IntradayLineChart(stock: stock, points: data.intraday)
+          : _KLineCandlestickChart(points: data.kLine),
     );
   }
 }
 
-class _IntradayPainter extends CustomPainter {
-  _IntradayPainter({
+class _IntradayLineChart extends StatelessWidget {
+  const _IntradayLineChart({
+    required this.stock,
     required this.points,
-    required this.preClose,
-    required this.isUp,
-    required this.colorScheme,
   });
 
+  final Stock stock;
   final List<ChartPoint> points;
-  final double? preClose;
-  final bool isUp;
-  final ColorScheme colorScheme;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final chart = Rect.fromLTWH(42, 12, size.width - 84, size.height - 42);
-    if (chart.width <= 0 || chart.height <= 0) return;
-    _drawGrid(canvas, chart, colorScheme);
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final trendColor = _trendColor(stock.isUp);
+    final priceSpots = <FlSpot>[];
+    final avgSpots = <FlSpot>[];
+    for (var i = 0; i < points.length; i++) {
+      final point = points[i];
+      priceSpots.add(FlSpot(i.toDouble(), point.price));
+      final avg = point.avg;
+      if (avg != null && avg > 0) avgSpots.add(FlSpot(i.toDouble(), avg));
+    }
 
     final values = [
       ...points.map((point) => point.price),
       ...points.map((point) => point.avg).whereType<double>(),
-      if (preClose != null) preClose!,
+      if (stock.preClose != null) stock.preClose!,
     ].where((value) => value > 0).toList();
-    if (values.isEmpty) return;
-    final minValue = values.reduce(math.min);
-    final maxValue = values.reduce(math.max);
-    final padding = (maxValue - minValue).abs() < 0.0001 ? maxValue * 0.02 : (maxValue - minValue) * 0.08;
-    final low = minValue - padding;
-    final high = maxValue + padding;
-    final trend = isUp ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
+    final (minY, maxY) = _paddedDomain(values, 0.08);
 
-    Offset mapPoint(int index, double price) {
-      final x = chart.left + chart.width * index / math.max(1, points.length - 1);
-      final y = chart.bottom - ((price - low) / (high - low)) * chart.height;
-      return Offset(x, y);
-    }
-
-    final pricePath = Path();
-    for (var i = 0; i < points.length; i++) {
-      final offset = mapPoint(i, points[i].price);
-      if (i == 0) {
-        pricePath.moveTo(offset.dx, offset.dy);
-      } else {
-        pricePath.lineTo(offset.dx, offset.dy);
-      }
-    }
-
-    final fillPath = Path.from(pricePath)
-      ..lineTo(chart.right, chart.bottom)
-      ..lineTo(chart.left, chart.bottom)
-      ..close();
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [trend.withOpacity(0.20), trend.withOpacity(0.0)],
-      ).createShader(chart);
-    canvas.drawPath(fillPath, fillPaint);
-    canvas.drawPath(
-      pricePath,
-      Paint()
-        ..color = trend
-        ..strokeWidth = 2.4
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: math.max(1, points.length - 1).toDouble(),
+        minY: minY,
+        maxY: maxY,
+        clipData: const FlClipData.all(),
+        gridData: _gridData(scheme),
+        borderData: FlBorderData(show: false),
+        titlesData: _titlesData(scheme),
+        extraLinesData: stock.preClose == null
+            ? const ExtraLinesData()
+            : ExtraLinesData(
+                horizontalLines: [
+                  HorizontalLine(
+                    y: stock.preClose!,
+                    color: scheme.outlineVariant,
+                    strokeWidth: 1,
+                    dashArray: [5, 5],
+                  ),
+                ],
+              ),
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => scheme.inverseSurface,
+            tooltipBorderRadius: BorderRadius.circular(12),
+            getTooltipItems: (spots) {
+              return spots.map((spot) {
+                final index = spot.x.round().clamp(0, points.length - 1);
+                final point = points[index];
+                final label = spot.barIndex == 0 ? '价格' : '均价';
+                return LineTooltipItem(
+                  '${point.time}\n$label ${spot.y.toStringAsFixed(2)}',
+                  TextStyle(
+                    color: scheme.onInverseSurface,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                );
+              }).toList();
+            },
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: priceSpots,
+            color: trendColor,
+            barWidth: 2.2,
+            isCurved: true,
+            curveSmoothness: 0.18,
+            preventCurveOverShooting: true,
+            isStrokeCapRound: true,
+            isStrokeJoinRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  trendColor.withValues(alpha: 0.24),
+                  trendColor.withValues(alpha: 0),
+                ],
+              ),
+            ),
+          ),
+          if (avgSpots.length > 1)
+            LineChartBarData(
+              spots: avgSpots,
+              color: const Color(0xFFF59E0B),
+              barWidth: 1.4,
+              isCurved: true,
+              curveSmoothness: 0.14,
+              preventCurveOverShooting: true,
+              dotData: const FlDotData(show: false),
+            ),
+        ],
+      ),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
     );
-
-    final avgPath = Path();
-    var hasAvg = false;
-    for (var i = 0; i < points.length; i++) {
-      final avg = points[i].avg;
-      if (avg == null || avg <= 0) continue;
-      final offset = mapPoint(i, avg);
-      if (!hasAvg) {
-        avgPath.moveTo(offset.dx, offset.dy);
-        hasAvg = true;
-      } else {
-        avgPath.lineTo(offset.dx, offset.dy);
-      }
-    }
-    if (hasAvg) {
-      canvas.drawPath(
-        avgPath,
-        Paint()
-          ..color = const Color(0xFFEAB308)
-          ..strokeWidth = 1.5
-          ..style = PaintingStyle.stroke,
-      );
-    }
-
-    if (preClose != null && preClose! > low && preClose! < high) {
-      final y = chart.bottom - ((preClose! - low) / (high - low)) * chart.height;
-      _drawDashedLine(canvas, Offset(chart.left, y), Offset(chart.right, y), colorScheme.outlineVariant);
-    }
-    _drawAxisLabels(canvas, chart, high, low, colorScheme);
-  }
-
-  @override
-  bool shouldRepaint(covariant _IntradayPainter oldDelegate) {
-    return oldDelegate.points != points || oldDelegate.preClose != preClose || oldDelegate.isUp != isUp;
   }
 }
 
-class _KLinePainter extends CustomPainter {
-  _KLinePainter({
+class _KLineCandlestickChart extends StatelessWidget {
+  const _KLineCandlestickChart({
     required this.points,
-    required this.colorScheme,
   });
 
   final List<KLinePoint> points;
-  final ColorScheme colorScheme;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final chart = Rect.fromLTWH(42, 12, size.width - 84, size.height - 42);
-    if (chart.width <= 0 || chart.height <= 0) return;
-    _drawGrid(canvas, chart, colorScheme);
-
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final visible = points.length > 72 ? points.sublist(points.length - 72) : points;
+    final candleSpots = [
+      for (var i = 0; i < visible.length; i++)
+        CandlestickSpot(
+          x: i.toDouble(),
+          open: visible[i].open,
+          high: visible[i].high,
+          low: visible[i].low,
+          close: visible[i].close,
+        ),
+    ];
     final values = visible.expand((point) => [point.high, point.low]).where((value) => value > 0).toList();
-    if (values.isEmpty) return;
+    final (minY, maxY) = _paddedDomain(values, 0.06);
+    final candleWidth = math.max(3.0, math.min(10.0, 280 / math.max(8, visible.length) * 0.62));
 
-    final minValue = values.reduce(math.min);
-    final maxValue = values.reduce(math.max);
-    final padding = (maxValue - minValue).abs() < 0.0001 ? maxValue * 0.02 : (maxValue - minValue) * 0.06;
-    final low = minValue - padding;
-    final high = maxValue + padding;
-    final step = chart.width / visible.length;
-    final candleWidth = math.max(3.0, math.min(12.0, step * 0.62));
-
-    double yOf(double price) => chart.bottom - ((price - low) / (high - low)) * chart.height;
-
-    for (var i = 0; i < visible.length; i++) {
-      final point = visible[i];
-      final x = chart.left + step * i + step / 2;
-      final isUp = point.close >= point.open;
-      final color = isUp ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
-      final paint = Paint()..color = color;
-      canvas.drawLine(
-        Offset(x, yOf(point.high)),
-        Offset(x, yOf(point.low)),
-        paint..strokeWidth = 1,
-      );
-      final top = math.min(yOf(point.open), yOf(point.close));
-      final bottom = math.max(yOf(point.open), yOf(point.close));
-      final rect = Rect.fromLTRB(
-        x - candleWidth / 2,
-        top,
-        x + candleWidth / 2,
-        math.max(top + 1, bottom),
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(1.5)),
-        paint,
-      );
-    }
-
-    _drawMa(canvas, chart, visible, low, high, 5, const Color(0xFFEAB308));
-    _drawMa(canvas, chart, visible, low, high, 10, const Color(0xFF3B82F6));
-    _drawMa(canvas, chart, visible, low, high, 20, const Color(0xFFA855F7));
-    _drawMa(canvas, chart, visible, low, high, 30, const Color(0xFF16A34A));
-    _drawMa(canvas, chart, visible, low, high, 60, const Color(0xFF94A3B8));
-    _drawAxisLabels(canvas, chart, high, low, colorScheme);
-  }
-
-  void _drawMa(
-    Canvas canvas,
-    Rect chart,
-    List<KLinePoint> visible,
-    double low,
-    double high,
-    int days,
-    Color color,
-  ) {
-    if (visible.length < days) return;
-    final step = chart.width / visible.length;
-    final path = Path();
-    var started = false;
-    for (var i = 0; i < visible.length; i++) {
-      if (i < days - 1) continue;
-      var sum = 0.0;
-      for (var j = 0; j < days; j++) {
-        sum += visible[i - j].close;
-      }
-      final avg = sum / days;
-      final x = chart.left + step * i + step / 2;
-      final y = chart.bottom - ((avg - low) / (high - low)) * chart.height;
-      if (!started) {
-        path.moveTo(x, y);
-        started = true;
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    if (!started) return;
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..strokeWidth = 1.15
-        ..style = PaintingStyle.stroke,
+    return CandlestickChart(
+      CandlestickChartData(
+        candlestickSpots: candleSpots,
+        minX: 0,
+        maxX: math.max(1, visible.length - 1).toDouble(),
+        minY: minY,
+        maxY: maxY,
+        clipData: const FlClipData.all(),
+        gridData: _gridData(scheme),
+        borderData: FlBorderData(show: false),
+        titlesData: _titlesData(scheme),
+        candlestickPainter: DefaultCandlestickPainter(
+          candlestickStyleProvider: (spot, _) {
+            final color = _trendColor(spot.close >= spot.open);
+            return CandlestickStyle(
+              lineColor: color,
+              lineWidth: 1.2,
+              bodyStrokeColor: color,
+              bodyStrokeWidth: 1,
+              bodyFillColor: color.withValues(alpha: 0.92),
+              bodyWidth: candleWidth,
+              bodyRadius: 2,
+            );
+          },
+        ),
+        candlestickTouchData: CandlestickTouchData(
+          touchTooltipData: CandlestickTouchTooltipData(
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            getTooltipColor: (_) => scheme.inverseSurface,
+            tooltipBorderRadius: BorderRadius.circular(12),
+            getTooltipItems: (_, spot, spotIndex) {
+              final index = spotIndex.clamp(0, visible.length - 1);
+              final point = visible[index];
+              return CandlestickTooltipItem(
+                '${point.date}\n开 ${spot.open.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}',
+                textStyle: TextStyle(
+                  color: scheme.onInverseSurface,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
     );
   }
-
-  @override
-  bool shouldRepaint(covariant _KLinePainter oldDelegate) => oldDelegate.points != points;
 }
 
-void _drawGrid(Canvas canvas, Rect chart, ColorScheme scheme) {
-  final paint = Paint()
-    ..color = scheme.outlineVariant.withOpacity(0.45)
-    ..strokeWidth = 0.7;
-  for (var i = 0; i <= 4; i++) {
-    final y = chart.top + chart.height * i / 4;
-    canvas.drawLine(Offset(chart.left, y), Offset(chart.right, y), paint);
-  }
-  for (var i = 0; i <= 4; i++) {
-    final x = chart.left + chart.width * i / 4;
-    canvas.drawLine(Offset(x, chart.top), Offset(x, chart.bottom), paint);
-  }
-}
-
-void _drawAxisLabels(Canvas canvas, Rect chart, double high, double low, ColorScheme scheme) {
-  final style = TextStyle(
-    color: scheme.onSurfaceVariant,
-    fontSize: 10,
-    fontWeight: FontWeight.w600,
+FlGridData _gridData(ColorScheme scheme) {
+  return FlGridData(
+    drawVerticalLine: false,
+    getDrawingHorizontalLine: (_) => FlLine(
+      color: scheme.outlineVariant.withValues(alpha: 0.55),
+      strokeWidth: 0.8,
+    ),
   );
-  for (final entry in [(high, chart.top), (((high + low) / 2), chart.center.dy), (low, chart.bottom - 12)]) {
-    final painter = TextPainter(
-      text: TextSpan(text: entry.$1.toStringAsFixed(2), style: style),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout(maxWidth: 40);
-    painter.paint(canvas, Offset(0, entry.$2));
-  }
 }
 
-void _drawDashedLine(Canvas canvas, Offset start, Offset end, Color color) {
-  const dashWidth = 6.0;
-  const dashSpace = 4.0;
-  final paint = Paint()
-    ..color = color
-    ..strokeWidth = 1;
-  var distance = 0.0;
-  final total = (end - start).distance;
-  while (distance < total) {
-    final from = Offset.lerp(start, end, distance / total)!;
-    final to = Offset.lerp(start, end, math.min(1, (distance + dashWidth) / total))!;
-    canvas.drawLine(from, to, paint);
-    distance += dashWidth + dashSpace;
-  }
+FlTitlesData _titlesData(ColorScheme scheme) {
+  return FlTitlesData(
+    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+    rightTitles: AxisTitles(
+      sideTitles: SideTitles(
+        showTitles: true,
+        reservedSize: 44,
+        maxIncluded: false,
+        minIncluded: false,
+        getTitlesWidget: (value, meta) => Text(
+          value.toStringAsFixed(2),
+          style: TextStyle(
+            color: scheme.onSurfaceVariant,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    ),
+    bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+  );
+}
+
+(double, double) _paddedDomain(List<double> values, double factor) {
+  if (values.isEmpty) return (0, 1);
+  final minValue = values.reduce(math.min);
+  final maxValue = values.reduce(math.max);
+  final padding = (maxValue - minValue).abs() < 0.0001 ? maxValue.abs() * 0.02 + 1 : (maxValue - minValue) * factor;
+  return (minValue - padding, maxValue + padding);
+}
+
+Color _trendColor(bool isUp) {
+  return isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
 }

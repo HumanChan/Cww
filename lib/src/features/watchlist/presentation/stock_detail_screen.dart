@@ -35,7 +35,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
     final watchlistState = ref.watch(watchlistControllerProvider);
     final stock = _latestStock(watchlistState);
     final scheme = Theme.of(context).colorScheme;
-    final trendColor = stock.isUp ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
+    final trendColor = stock.isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
     final symbol = currencySymbol(stock);
 
     return Scaffold(
@@ -101,7 +101,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                     padding: const EdgeInsets.only(bottom: 8),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: trendColor.withOpacity(0.10),
+                        color: trendColor.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Padding(
@@ -207,48 +207,55 @@ class _StatsGrid extends StatelessWidget {
       ('总市值', '$symbol${formatAmount(stock.marketCap, type: stock.type)}'),
     ];
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 1.65,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth >= 760 ? 4 : 3;
+        final childAspectRatio = constraints.maxWidth >= 760 ? 3.35 : 2.35;
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: items.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  childAspectRatio: childAspectRatio,
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 4,
+                ),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        item.$1,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    item.$1,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    item.$2,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ],
-              );
-            },
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

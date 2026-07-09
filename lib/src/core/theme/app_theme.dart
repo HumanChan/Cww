@@ -1,39 +1,56 @@
 import 'package:flutter/material.dart';
+import 'package:flex_color_scheme/flex_color_scheme.dart';
 
 class AppTheme {
-  static const _seed = Color(0xFF2563EB);
+  static const _lightScaffold = Color(0xFFF8FAFC);
+  static const _darkScaffold = Color(0xFF020617);
+  static const _darkSurface = Color(0xFF111827);
 
   static ThemeData get light {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: _seed,
-      brightness: Brightness.light,
-      surface: const Color(0xFFF8FAFC),
+    final theme = FlexThemeData.light(
+      scheme: FlexScheme.brandBlue,
+      useMaterial3: true,
+      scaffoldBackground: _lightScaffold,
+      surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
+      subThemesData: _subThemes,
     );
 
-    return _base(scheme).copyWith(
-      scaffoldBackgroundColor: const Color(0xFFF8FAFC),
+    final scheme = theme.colorScheme.copyWith(surface: Colors.white);
+    return _base(theme.copyWith(colorScheme: scheme)).copyWith(
+      scaffoldBackgroundColor: _lightScaffold,
       cardTheme: _cardTheme(scheme),
     );
   }
 
   static ThemeData get dark {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: _seed,
-      brightness: Brightness.dark,
-      surface: const Color(0xFF0F172A),
+    final theme = FlexThemeData.dark(
+      scheme: FlexScheme.deepBlue,
+      useMaterial3: true,
+      scaffoldBackground: _darkScaffold,
+      surfaceMode: FlexSurfaceMode.highScaffoldLowSurface,
+      subThemesData: _subThemes,
     );
 
-    return _base(scheme).copyWith(
-      scaffoldBackgroundColor: const Color(0xFF020617),
+    final scheme = theme.colorScheme.copyWith(surface: _darkSurface);
+    return _base(theme.copyWith(colorScheme: scheme)).copyWith(
+      scaffoldBackgroundColor: _darkScaffold,
       cardTheme: _cardTheme(scheme),
     );
   }
 
-  static ThemeData _base(ColorScheme scheme) {
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: scheme,
-      fontFamily: 'Roboto',
+  static const _subThemes = FlexSubThemesData(
+    defaultRadius: 20,
+    inputDecoratorRadius: 18,
+    filledButtonRadius: 999,
+    outlinedButtonRadius: 999,
+    segmentedButtonRadius: 999,
+  );
+
+  static ThemeData _base(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    return theme.copyWith(
+      textTheme: theme.textTheme.apply(fontFamily: 'Roboto'),
+      primaryTextTheme: theme.primaryTextTheme.apply(fontFamily: 'Roboto'),
       visualDensity: VisualDensity.adaptivePlatformDensity,
       appBarTheme: AppBarTheme(
         centerTitle: false,
@@ -44,7 +61,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: scheme.surfaceContainerHighest.withOpacity(0.55),
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide.none,
@@ -61,15 +78,15 @@ class AppTheme {
     );
   }
 
-  static CardTheme _cardTheme(ColorScheme scheme) {
-    return CardTheme(
+  static CardThemeData _cardTheme(ColorScheme scheme) {
+    return CardThemeData(
       elevation: 0,
       margin: EdgeInsets.zero,
       color: scheme.surface,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: BorderSide(color: scheme.outlineVariant.withOpacity(0.55)),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
       ),
     );
   }

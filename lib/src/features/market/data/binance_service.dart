@@ -106,7 +106,8 @@ class BinanceService {
       return ChartData(
         type: type,
         intraday: rows.whereType<List>().map((row) {
-          final millis = row.first is int ? row.first as int : int.tryParse(row.first.toString()) ?? 0;
+          final first = _at(row, 0);
+          final millis = first is int ? first : int.tryParse(first?.toString() ?? '') ?? 0;
           final date = DateTime.fromMillisecondsSinceEpoch(millis);
           return ChartPoint(
             time:
@@ -122,7 +123,8 @@ class BinanceService {
     return ChartData(
       type: type,
       kLine: rows.whereType<List>().map((row) {
-        final millis = row.first is int ? row.first as int : int.tryParse(row.first.toString()) ?? 0;
+        final first = _at(row, 0);
+        final millis = first is int ? first : int.tryParse(first?.toString() ?? '') ?? 0;
         final date = DateTime.fromMillisecondsSinceEpoch(millis).toIso8601String().split('T').first;
         return KLinePoint(
           date: date,

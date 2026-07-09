@@ -114,8 +114,8 @@ class MarketRepository {
 
   Future<List<Stock>> _searchStocks(String keyword) async {
     final results = await Future.wait([
-      _eastMoney.searchStocks(keyword),
-      _yahoo.searchStocks(keyword),
+      _safeStockList(() => _eastMoney.searchStocks(keyword)),
+      _safeStockList(() => _yahoo.searchStocks(keyword)),
     ]);
     final seen = <String>{};
     return [...results[0], ...results[1]].where((stock) => seen.add(stock.secid)).toList();
@@ -139,9 +139,9 @@ class MarketRepository {
         .toList();
 
     final quoteGroups = await Future.wait([
-      _eastMoney.getStockQuotes(eastMoneySecids),
-      _binance.getCryptoQuotes(cryptoSymbols),
-      _yahoo.fetchQuotes(yahooSymbols),
+      _safeStockList(() => _eastMoney.getStockQuotes(eastMoneySecids)),
+      _safeStockList(() => _binance.getCryptoQuotes(cryptoSymbols)),
+      _safeStockList(() => _yahoo.fetchQuotes(yahooSymbols)),
     ]);
     return quoteGroups.expand((quotes) => quotes).toList();
   }
@@ -214,5 +214,13 @@ class MarketRepository {
       }
     }
     return migrated;
+  }
+
+  Future<List<Stock>> _safeStockList(Future<List<Stock>> Function() fetcher) async {
+    try {
+      return await fetcher();
+    } catch (_) {
+      return [];
+    }
   }
 }

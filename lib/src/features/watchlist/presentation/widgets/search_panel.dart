@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/utils/formatters.dart';
-import '../../../market/domain/stock.dart';
 import '../../application/watchlist_controller.dart';
 
 class SearchPanel extends ConsumerStatefulWidget {
@@ -71,10 +70,10 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                   decoration: BoxDecoration(
                     color: scheme.surface,
                     borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: scheme.outlineVariant.withOpacity(0.55)),
+                    border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.55)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
+                        color: Colors.black.withValues(alpha: 0.08),
                         blurRadius: 24,
                         offset: const Offset(0, 14),
                       ),
@@ -88,7 +87,7 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                       height: 1,
                       indent: 16,
                       endIndent: 16,
-                      color: scheme.outlineVariant.withOpacity(0.45),
+                      color: scheme.outlineVariant.withValues(alpha: 0.45),
                     ),
                     itemBuilder: (context, index) {
                       final stock = state.searchResults[index];
