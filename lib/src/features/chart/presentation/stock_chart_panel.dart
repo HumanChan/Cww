@@ -93,21 +93,58 @@ class _IntradayLineChart extends StatelessWidget {
                 ],
               ),
         lineTouchData: LineTouchData(
+          getTouchedSpotIndicator: (barData, spotIndexes) {
+            return spotIndexes.map((index) {
+              return TouchedSpotIndicatorData(
+                FlLine(
+                  color: scheme.outline.withValues(alpha: 0.42),
+                  strokeWidth: 0.9,
+                  dashArray: [4, 4],
+                ),
+                FlDotData(
+                  getDotPainter: (spot, percent, barData, index) {
+                    return FlDotCirclePainter(
+                      radius: 3.4,
+                      color: barData.color ?? trendColor,
+                      strokeWidth: 2,
+                      strokeColor: Colors.white,
+                    );
+                  },
+                ),
+              );
+            }).toList();
+          },
+          getTouchLineEnd: (barData, spotIndex) => double.infinity,
           touchTooltipData: LineTouchTooltipData(
             getTooltipColor: (_) => scheme.inverseSurface,
             tooltipBorderRadius: BorderRadius.circular(12),
+            tooltipPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 9,
+            ),
+            maxContentWidth: 156,
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
             getTooltipItems: (spots) {
               return spots.map((spot) {
                 final index = spot.x.round().clamp(0, points.length - 1);
                 final point = points[index];
-                final label = spot.barIndex == 0 ? '价格' : '均价';
+                if (spot.barIndex != 0) return null;
+                final avg = point.avg == null || point.avg! <= 0
+                    ? '--'
+                    : point.avg!.toStringAsFixed(2);
                 return LineTooltipItem(
-                  '${point.time}\n$label ${spot.y.toStringAsFixed(2)}',
+                  '${point.time}\n'
+                  '价格 ${point.price.toStringAsFixed(2)}\n'
+                  '均价 $avg\n'
+                  '成交量 ${_compactVolume(point.volume ?? 0)}',
                   TextStyle(
                     color: scheme.onInverseSurface,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 10.5,
+                    height: 1.32,
+                    fontWeight: FontWeight.w800,
                   ),
+                  textAlign: TextAlign.left,
                 );
               }).toList();
             },
@@ -307,19 +344,31 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                             touchTooltipData: CandlestickTouchTooltipData(
                               fitInsideHorizontally: true,
                               fitInsideVertically: true,
+                              tooltipPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 9,
+                              ),
+                              maxContentWidth: 190,
                               getTooltipColor: (_) => scheme.inverseSurface,
                               tooltipBorderRadius: BorderRadius.circular(12),
                               getTooltipItems: (_, spot, spotIndex) {
                                 final index =
                                     spotIndex.clamp(0, visible.length - 1);
-                                final point = visible[index].point;
+                                final item = visible[index];
+                                final point = item.point;
                                 return CandlestickTooltipItem(
-                                  '${point.date}\n开 ${spot.open.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}',
+                                  '${point.date}\n'
+                                  '开 ${spot.open.toStringAsFixed(2)}  高 ${spot.high.toStringAsFixed(2)}\n'
+                                  '低 ${spot.low.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}\n'
+                                  '量 ${_compactVolume(point.volume)}\n'
+                                  '${_maTooltipLine(item)}',
                                   textStyle: TextStyle(
                                     color: scheme.onInverseSurface,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: 10.5,
+                                    height: 1.32,
+                                    fontWeight: FontWeight.w800,
                                   ),
+                                  textAlign: TextAlign.left,
                                 );
                               },
                             ),
@@ -679,6 +728,16 @@ LineChartBarData? _movingAverageBar(
     dotData: const FlDotData(show: false),
     isStrokeCapRound: true,
   );
+}
+
+String _maTooltipLine(_KLinePointWithMa item) {
+  String value(double? input) {
+    if (input == null || input <= 0) return '--';
+    return input.toStringAsFixed(2);
+  }
+
+  return 'MA5 ${value(item.ma5)}  MA10 ${value(item.ma10)}\n'
+      'MA20 ${value(item.ma20)}  MA60 ${value(item.ma60)}';
 }
 
 FlGridData _gridData(ColorScheme scheme) {
