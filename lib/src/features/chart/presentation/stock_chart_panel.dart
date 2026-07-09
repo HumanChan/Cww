@@ -18,12 +18,15 @@ class StockChartPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasData = data.type == ChartType.intraday ? data.intraday.isNotEmpty : data.kLine.isNotEmpty;
+    final hasData = data.type == ChartType.intraday
+        ? data.intraday.isNotEmpty
+        : data.kLine.isNotEmpty;
     if (!hasData) {
       return Center(
         child: Text(
           '暂无图表数据',
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          style:
+              TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       );
     }
@@ -160,71 +163,226 @@ class _KLineCandlestickChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final visible = points.length > 72 ? points.sublist(points.length - 72) : points;
+    final enriched = _withMovingAverages(points);
+    final visible = enriched.length > 72
+        ? enriched.sublist(enriched.length - 72)
+        : enriched;
     final candleSpots = [
       for (var i = 0; i < visible.length; i++)
         CandlestickSpot(
           x: i.toDouble(),
-          open: visible[i].open,
-          high: visible[i].high,
-          low: visible[i].low,
-          close: visible[i].close,
+          open: visible[i].point.open,
+          high: visible[i].point.high,
+          low: visible[i].point.low,
+          close: visible[i].point.close,
         ),
     ];
-    final values = visible.expand((point) => [point.high, point.low]).where((value) => value > 0).toList();
+    final values = visible
+        .expand(
+          (point) => [
+            point.point.high,
+            point.point.low,
+            point.ma5,
+            point.ma10,
+            point.ma20,
+            point.ma30,
+            point.ma60,
+          ],
+        )
+        .whereType<double>()
+        .where((value) => value > 0)
+        .toList();
     final (minY, maxY) = _paddedDomain(values, 0.06);
-    final candleWidth = math.max(3.0, math.min(10.0, 280 / math.max(8, visible.length) * 0.62));
+    final candleWidth =
+        math.max(3.0, math.min(10.0, 280 / math.max(8, visible.length) * 0.62));
+    final maBars = _movingAverageBars(visible);
 
-    return CandlestickChart(
-      CandlestickChartData(
-        candlestickSpots: candleSpots,
-        minX: 0,
-        maxX: math.max(1, visible.length - 1).toDouble(),
-        minY: minY,
-        maxY: maxY,
-        clipData: const FlClipData.all(),
-        gridData: _gridData(scheme),
-        borderData: FlBorderData(show: false),
-        titlesData: _titlesData(scheme),
-        candlestickPainter: DefaultCandlestickPainter(
-          candlestickStyleProvider: (spot, _) {
-            final color = _trendColor(spot.close >= spot.open);
-            return CandlestickStyle(
-              lineColor: color,
-              lineWidth: 1.2,
-              bodyStrokeColor: color,
-              bodyStrokeWidth: 1,
-              bodyFillColor: color.withValues(alpha: 0.92),
-              bodyWidth: candleWidth,
-              bodyRadius: 2,
-            );
-          },
-        ),
-        candlestickTouchData: CandlestickTouchData(
-          touchTooltipData: CandlestickTouchTooltipData(
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            getTooltipColor: (_) => scheme.inverseSurface,
-            tooltipBorderRadius: BorderRadius.circular(12),
-            getTooltipItems: (_, spot, spotIndex) {
-              final index = spotIndex.clamp(0, visible.length - 1);
-              final point = visible[index];
-              return CandlestickTooltipItem(
-                '${point.date}\n开 ${spot.open.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}',
-                textStyle: TextStyle(
-                  color: scheme.onInverseSurface,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              );
-            },
+    return Stack(
+      children: [
+        CandlestickChart(
+          CandlestickChartData(
+            candlestickSpots: candleSpots,
+            minX: 0,
+            maxX: math.max(1, visible.length - 1).toDouble(),
+            minY: minY,
+            maxY: maxY,
+            clipData: const FlClipData.all(),
+            gridData: _gridData(scheme),
+            borderData: FlBorderData(show: false),
+            titlesData: _titlesData(scheme),
+            candlestickPainter: DefaultCandlestickPainter(
+              candlestickStyleProvider: (spot, _) {
+                final color = _trendColor(spot.close >= spot.open);
+                return CandlestickStyle(
+                  lineColor: color,
+                  lineWidth: 1.2,
+                  bodyStrokeColor: color,
+                  bodyStrokeWidth: 1,
+                  bodyFillColor: color.withValues(alpha: 0.92),
+                  bodyWidth: candleWidth,
+                  bodyRadius: 2,
+                );
+              },
+            ),
+            candlestickTouchData: CandlestickTouchData(
+              touchTooltipData: CandlestickTouchTooltipData(
+                fitInsideHorizontally: true,
+                fitInsideVertically: true,
+                getTooltipColor: (_) => scheme.inverseSurface,
+                tooltipBorderRadius: BorderRadius.circular(12),
+                getTooltipItems: (_, spot, spotIndex) {
+                  final index = spotIndex.clamp(0, visible.length - 1);
+                  final point = visible[index].point;
+                  return CandlestickTooltipItem(
+                    '${point.date}\n开 ${spot.open.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}',
+                    textStyle: TextStyle(
+                      color: scheme.onInverseSurface,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOutCubic,
         ),
-      ),
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeOutCubic,
+        if (maBars.isNotEmpty)
+          IgnorePointer(
+            child: LineChart(
+              LineChartData(
+                minX: 0,
+                maxX: math.max(1, visible.length - 1).toDouble(),
+                minY: minY,
+                maxY: maxY,
+                clipData: const FlClipData.all(),
+                gridData: const FlGridData(show: false),
+                borderData: FlBorderData(show: false),
+                titlesData: const FlTitlesData(show: false),
+                lineTouchData: const LineTouchData(enabled: false),
+                lineBarsData: maBars,
+              ),
+              duration: const Duration(milliseconds: 450),
+              curve: Curves.easeOutCubic,
+            ),
+          ),
+        if (maBars.isNotEmpty)
+          Positioned(
+            left: 4,
+            top: 0,
+            child: Wrap(
+              spacing: 7,
+              children: const [
+                _MaLegend(label: 'MA5', color: Color(0xFFF59E0B)),
+                _MaLegend(label: 'MA10', color: Color(0xFF3B82F6)),
+                _MaLegend(label: 'MA20', color: Color(0xFFA855F7)),
+                _MaLegend(label: 'MA30', color: Color(0xFF22C55E)),
+                _MaLegend(label: 'MA60', color: Color(0xFF94A3B8)),
+              ],
+            ),
+          ),
+      ],
     );
   }
+}
+
+class _KLinePointWithMa {
+  const _KLinePointWithMa({
+    required this.point,
+    this.ma5,
+    this.ma10,
+    this.ma20,
+    this.ma30,
+    this.ma60,
+  });
+
+  final KLinePoint point;
+  final double? ma5;
+  final double? ma10;
+  final double? ma20;
+  final double? ma30;
+  final double? ma60;
+}
+
+class _MaLegend extends StatelessWidget {
+  const _MaLegend({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: TextStyle(
+        color: color,
+        fontSize: 10,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+}
+
+List<_KLinePointWithMa> _withMovingAverages(List<KLinePoint> points) {
+  double? averageAt(int index, int days) {
+    if (index < days - 1) return null;
+    var sum = 0.0;
+    for (var i = 0; i < days; i++) {
+      sum += points[index - i].close;
+    }
+    return sum / days;
+  }
+
+  return [
+    for (var i = 0; i < points.length; i++)
+      _KLinePointWithMa(
+        point: points[i],
+        ma5: averageAt(i, 5),
+        ma10: averageAt(i, 10),
+        ma20: averageAt(i, 20),
+        ma30: averageAt(i, 30),
+        ma60: averageAt(i, 60),
+      ),
+  ];
+}
+
+List<LineChartBarData> _movingAverageBars(List<_KLinePointWithMa> points) {
+  final bars = [
+    _movingAverageBar(points, (point) => point.ma5, const Color(0xFFF59E0B)),
+    _movingAverageBar(points, (point) => point.ma10, const Color(0xFF3B82F6)),
+    _movingAverageBar(points, (point) => point.ma20, const Color(0xFFA855F7)),
+    _movingAverageBar(points, (point) => point.ma30, const Color(0xFF22C55E)),
+    _movingAverageBar(points, (point) => point.ma60, const Color(0xFF94A3B8)),
+  ];
+  return bars.whereType<LineChartBarData>().toList();
+}
+
+LineChartBarData? _movingAverageBar(
+  List<_KLinePointWithMa> points,
+  double? Function(_KLinePointWithMa point) selector,
+  Color color,
+) {
+  final spots = <FlSpot>[];
+  for (var i = 0; i < points.length; i++) {
+    final value = selector(points[i]);
+    if (value == null || value <= 0) continue;
+    spots.add(FlSpot(i.toDouble(), value));
+  }
+  if (spots.length < 2) return null;
+  return LineChartBarData(
+    spots: spots,
+    color: color,
+    barWidth: 1.05,
+    isCurved: true,
+    curveSmoothness: 0.12,
+    preventCurveOverShooting: true,
+    dotData: const FlDotData(show: false),
+    isStrokeCapRound: true,
+  );
 }
 
 FlGridData _gridData(ColorScheme scheme) {
@@ -265,7 +423,9 @@ FlTitlesData _titlesData(ColorScheme scheme) {
   if (values.isEmpty) return (0, 1);
   final minValue = values.reduce(math.min);
   final maxValue = values.reduce(math.max);
-  final padding = (maxValue - minValue).abs() < 0.0001 ? maxValue.abs() * 0.02 + 1 : (maxValue - minValue) * factor;
+  final padding = (maxValue - minValue).abs() < 0.0001
+      ? maxValue.abs() * 0.02 + 1
+      : (maxValue - minValue) * factor;
   return (minValue - padding, maxValue + padding);
 }
 

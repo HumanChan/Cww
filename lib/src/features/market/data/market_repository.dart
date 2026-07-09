@@ -14,9 +14,12 @@ import 'binance_service.dart';
 import 'east_money_service.dart';
 import 'yahoo_finance_service.dart';
 
-final eastMoneyServiceProvider = Provider((ref) => EastMoneyService(ref.watch(dioProvider)));
-final binanceServiceProvider = Provider((ref) => BinanceService(ref.watch(dioProvider)));
-final yahooFinanceServiceProvider = Provider((ref) => YahooFinanceService(ref.watch(dioProvider)));
+final eastMoneyServiceProvider =
+    Provider((ref) => EastMoneyService(ref.watch(dioProvider)));
+final binanceServiceProvider =
+    Provider((ref) => BinanceService(ref.watch(dioProvider)));
+final yahooFinanceServiceProvider =
+    Provider((ref) => YahooFinanceService(ref.watch(dioProvider)));
 
 final marketRepositoryProvider = Provider((ref) {
   return MarketRepository(
@@ -42,6 +45,7 @@ class MarketRepository {
   final EastMoneyService _eastMoney;
   final BinanceService _binance;
   final YahooFinanceService _yahoo;
+  final Map<String, ({DateTime createdAt, ChartData data})> _chartCache = {};
 
   List<StockGroup> get defaultGroups => const [
         StockGroup(
@@ -118,7 +122,9 @@ class MarketRepository {
       _safeStockList(() => _yahoo.searchStocks(keyword)),
     ]);
     final seen = <String>{};
-    return [...results[0], ...results[1]].where((stock) => seen.add(stock.secid)).toList();
+    return [...results[0], ...results[1]]
+        .where((stock) => seen.add(stock.secid))
+        .toList();
   }
 
   Future<List<Stock>> fetchQuotes(List<Stock> stocks) async {
@@ -126,7 +132,9 @@ class MarketRepository {
 
     final migrated = await _migrateLegacyUsStocks(stocks);
     final eastMoneySecids = migrated
-        .where((stock) => stock.type == StockType.stock && !isYahooStock(stock.code))
+        .where(
+          (stock) => stock.type == StockType.stock && !isYahooStock(stock.code),
+        )
         .map((stock) => stock.secid)
         .toList();
     final cryptoSymbols = migrated
@@ -134,7 +142,9 @@ class MarketRepository {
         .map((stock) => stock.secid)
         .toList();
     final yahooSymbols = migrated
-        .where((stock) => stock.type == StockType.stock && isYahooStock(stock.code))
+        .where(
+          (stock) => stock.type == StockType.stock && isYahooStock(stock.code),
+        )
         .map((stock) => stock.code)
         .toList();
 
@@ -146,20 +156,38 @@ class MarketRepository {
     return quoteGroups.expand((quotes) => quotes).toList();
   }
 
-  Future<ChartData> fetchChart(Stock stock, ChartType type) async {
-    if (stock.type == StockType.crypto) {
-      return _binance.getCryptoChartData(stock.secid, type);
+  Future<ChartData> fetchChart(
+    Stock stock,
+    ChartType type, {
+    bool forceRefresh = false,
+  }) async {
+    final cacheKey = '${stock.type.name}:${stock.secid}:${type.name}';
+    final cached = _chartCache[cacheKey];
+    final maxAge = type == ChartType.intraday
+        ? const Duration(seconds: 30)
+        : const Duration(minutes: 10);
+    if (!forceRefresh &&
+        cached != null &&
+        DateTime.now().difference(cached.createdAt) < maxAge) {
+      return cached.data;
     }
-    if (type == ChartType.intraday) {
-      return ChartData(
+
+    late final ChartData data;
+    if (stock.type == StockType.crypto) {
+      data = await _binance.getCryptoChartData(stock.secid, type);
+    } else if (type == ChartType.intraday) {
+      data = ChartData(
         type: type,
         intraday: await _eastMoney.getIntradayChart(stock.secid),
       );
+    } else {
+      data = ChartData(
+        type: type,
+        kLine: await _eastMoney.getKLineChart(stock.secid, type),
+      );
     }
-    return ChartData(
-      type: type,
-      kLine: await _eastMoney.getKLineChart(stock.secid, type),
-    );
+    _chartCache[cacheKey] = (createdAt: DateTime.now(), data: data);
+    return data;
   }
 
   Future<void> exportGroups(List<StockGroup> groups) async {
@@ -168,7 +196,8 @@ class MarketRepository {
       '${dir.path}/moyustock_backup_${DateTime.now().toIso8601String().split('T').first}.json',
     );
     await file.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(groups.map((group) => group.toJson()).toList()),
+      const JsonEncoder.withIndent('  ')
+          .convert(groups.map((group) => group.toJson()).toList()),
     );
     await Share.shareXFiles([XFile(file.path)], text: 'MoYuStock 自选股备份');
   }
@@ -208,7 +237,13 @@ class MarketRepository {
         }
         if (match == null) continue;
         final index = migrated.indexWhere((item) => item.code == stock.code);
-        if (index >= 0) migrated[index] = stock.copyWith(secid: match.secid, market: Market.us, name: match.name);
+        if (index >= 0) {
+          migrated[index] = stock.copyWith(
+            secid: match.secid,
+            market: Market.us,
+            name: match.name,
+          );
+        }
       } catch (_) {
         continue;
       }
@@ -216,7 +251,9 @@ class MarketRepository {
     return migrated;
   }
 
-  Future<List<Stock>> _safeStockList(Future<List<Stock>> Function() fetcher) async {
+  Future<List<Stock>> _safeStockList(
+    Future<List<Stock>> Function() fetcher,
+  ) async {
     try {
       return await fetcher();
     } catch (_) {

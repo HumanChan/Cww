@@ -35,16 +35,48 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
       children: [
         TextField(
           controller: _controller,
-          onChanged: ref.read(watchlistControllerProvider.notifier).setSearchQuery,
+          onChanged:
+              ref.read(watchlistControllerProvider.notifier).setSearchQuery,
           textInputAction: TextInputAction.search,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF0F172A),
+                fontWeight: FontWeight.w600,
+              ),
           decoration: InputDecoration(
-            hintText: state.searchMode == SearchMode.stock ? '搜索股票、指数、ETF...' : '搜索加密货币...',
+            hintText: state.searchMode == SearchMode.stock
+                ? 'Search stocks...'
+                : 'Search crypto...',
+            hintStyle: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFF3B82F6)),
+            ),
             prefixIcon: IconButton(
-              tooltip: '切换到${state.searchMode == SearchMode.stock ? '币种' : '股票'}搜索',
-              onPressed: ref.read(watchlistControllerProvider.notifier).toggleSearchMode,
+              tooltip:
+                  '切换到${state.searchMode == SearchMode.stock ? '币种' : '股票'}搜索',
+              onPressed: ref
+                  .read(watchlistControllerProvider.notifier)
+                  .toggleSearchMode,
               icon: Icon(
-                state.searchMode == SearchMode.stock ? Icons.show_chart : Icons.currency_bitcoin,
-                color: state.searchMode == SearchMode.stock ? scheme.primary : Colors.orange,
+                state.searchMode == SearchMode.stock
+                    ? Icons.search_rounded
+                    : Icons.currency_bitcoin,
+                size: 20,
+                color: state.searchMode == SearchMode.stock
+                    ? const Color(0xFF94A3B8)
+                    : Colors.orange,
               ),
             ),
             suffixIcon: state.isSearching
@@ -55,7 +87,10 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : const Icon(Icons.search_rounded),
+                : Icon(
+                    Icons.search_rounded,
+                    color: scheme.onSurfaceVariant,
+                  ),
           ),
         ),
         AnimatedSwitcher(
@@ -70,7 +105,9 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                   decoration: BoxDecoration(
                     color: scheme.surface,
                     borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.55)),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: 0.55),
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.08),
@@ -93,10 +130,17 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                       final stock = state.searchResults[index];
                       return ListTile(
                         dense: true,
-                        title: Text(stock.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text('${stock.code} · ${marketDisplayName(stock)}'),
+                        title: Text(
+                          stock.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle:
+                            Text('${stock.code} · ${marketDisplayName(stock)}'),
                         trailing: const Icon(Icons.add_circle_outline_rounded),
-                        onTap: () => ref.read(watchlistControllerProvider.notifier).addStock(stock),
+                        onTap: () => ref
+                            .read(watchlistControllerProvider.notifier)
+                            .addStock(stock),
                       );
                     },
                   ),
