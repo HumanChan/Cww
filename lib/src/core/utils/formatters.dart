@@ -21,12 +21,22 @@ String formatPrice(
 String formatAmount(double? amount, {StockType type = StockType.stock}) {
   if (amount == null || amount.isNaN) return '--';
   if (type == StockType.crypto) {
-    if (amount >= 1000000000) return '${(amount / 1000000000).toStringAsFixed(2)}B';
+    if (amount >= 1000000000000) {
+      return '${(amount / 1000000000000).toStringAsFixed(2)}T';
+    }
+    if (amount >= 1000000000) {
+      return '${(amount / 1000000000).toStringAsFixed(2)}B';
+    }
     if (amount >= 1000000) return '${(amount / 1000000).toStringAsFixed(2)}M';
     if (amount >= 1000) return '${(amount / 1000).toStringAsFixed(2)}K';
     return amount.toStringAsFixed(0);
   }
-  if (amount >= 100000000) return '${(amount / 100000000).toStringAsFixed(2)}亿';
+  if (amount >= 1000000000000) {
+    return '${(amount / 1000000000000).toStringAsFixed(2)}万亿';
+  }
+  if (amount >= 100000000) {
+    return '${(amount / 100000000).toStringAsFixed(2)}亿';
+  }
   if (amount >= 10000) return '${(amount / 10000).toStringAsFixed(2)}万';
   return amount.toStringAsFixed(0);
 }

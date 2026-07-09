@@ -319,64 +319,316 @@ class _StatsGrid extends StatelessWidget {
     String symbol,
     String amplitude,
   ) {
-    final rows = [
-      ('昨收', formatPrice(stock.preClose, type: stock.type, symbol: symbol)),
-      ('今开', formatPrice(stock.open, type: stock.type, symbol: symbol)),
-      ('最高', formatPrice(stock.high, type: stock.type, symbol: symbol)),
-      ('最低', formatPrice(stock.low, type: stock.type, symbol: symbol)),
-      ('振幅', amplitude),
-      ('量比', stock.volumeRatio?.toStringAsFixed(2) ?? '--'),
-      ('成交量', formatVolume(stock.volume)),
-      ('成交额', '$symbol${formatAmount(stock.amount, type: stock.type)}'),
-      (
-        '换手率',
-        stock.turnoverRate == null
-            ? '--'
-            : '${stock.turnoverRate!.toStringAsFixed(2)}%'
-      ),
-      ('市盈TTM', stock.peTTM?.toStringAsFixed(2) ?? '--'),
-      ('市净率', stock.pb?.toStringAsFixed(2) ?? '--'),
-      ('总市值', '$symbol${formatAmount(stock.marketCap, type: stock.type)}'),
-    ];
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-        child: GridView.builder(
+      isScrollControlled: true,
+      builder: (context) => _MetricsSheet(
+        stock: stock,
+        symbol: symbol,
+        amplitude: amplitude,
+      ),
+    );
+  }
+}
+
+class _MetricsSheet extends StatelessWidget {
+  const _MetricsSheet({
+    required this.stock,
+    required this.symbol,
+    required this.amplitude,
+  });
+
+  final Stock stock;
+  final String symbol;
+  final String amplitude;
+
+  @override
+  Widget build(BuildContext context) {
+    final trendColor =
+        stock.isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
+    final sections = [
+      _MetricSectionData(
+        title: '价格区间',
+        items: [
+          _MetricItem(
+            '昨收',
+            formatPrice(stock.preClose, type: stock.type, symbol: symbol),
+          ),
+          _MetricItem(
+            '今开',
+            formatPrice(stock.open, type: stock.type, symbol: symbol),
+            tone: _priceTone(stock.open, stock.preClose),
+          ),
+          _MetricItem(
+            '最高',
+            formatPrice(stock.high, type: stock.type, symbol: symbol),
+            tone: _priceTone(stock.high, stock.preClose),
+          ),
+          _MetricItem(
+            '最低',
+            formatPrice(stock.low, type: stock.type, symbol: symbol),
+            tone: _priceTone(stock.low, stock.preClose),
+          ),
+          _MetricItem(
+            '涨跌额',
+            formatPrice(stock.change, type: stock.type, symbol: symbol),
+            tone: stock.change == null
+                ? null
+                : stock.change! >= 0
+                    ? const Color(0xFF2563EB)
+                    : const Color(0xFF475569),
+          ),
+          _MetricItem('振幅', amplitude),
+        ],
+      ),
+      _MetricSectionData(
+        title: '成交活跃',
+        items: [
+          _MetricItem('成交量', formatVolume(stock.volume)),
+          _MetricItem(
+            '成交额',
+            '$symbol${formatAmount(stock.amount, type: stock.type)}',
+          ),
+          _MetricItem(
+            '换手率',
+            stock.turnoverRate == null
+                ? '--'
+                : '${stock.turnoverRate!.toStringAsFixed(2)}%',
+          ),
+          _MetricItem(
+            '量比',
+            stock.volumeRatio?.toStringAsFixed(2) ?? '--',
+            tone: stock.volumeRatio == null
+                ? null
+                : stock.volumeRatio! >= 1
+                    ? const Color(0xFF2563EB)
+                    : const Color(0xFF475569),
+          ),
+        ],
+      ),
+      _MetricSectionData(
+        title: '估值信息',
+        items: [
+          _MetricItem('市盈(动)', stock.peDynamic?.toStringAsFixed(2) ?? '--'),
+          _MetricItem('市盈(静)', stock.peStatic?.toStringAsFixed(2) ?? '--'),
+          _MetricItem('市盈TTM', stock.peTTM?.toStringAsFixed(2) ?? '--'),
+          _MetricItem('市净率', stock.pb?.toStringAsFixed(2) ?? '--'),
+          _MetricItem(
+            '总市值',
+            '$symbol${formatAmount(stock.marketCap, type: stock.type)}',
+          ),
+          _MetricItem('市场', marketDisplayName(stock)),
+        ],
+      ),
+    ];
+
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          stock.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF0F172A),
+                                  ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          '${stock.code} · ${marketDisplayName(stock)}',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF64748B),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        formatPrice(
+                          stock.price,
+                          type: stock.type,
+                          symbol: symbol,
+                        ),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: trendColor,
+                          fontWeight: FontWeight.w900,
+                          fontFeatures: const [
+                            FontFeature.tabularFigures(),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: trendColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          child: Text(
+                            formatSignedPercent(stock.percent),
+                            style: TextStyle(
+                              color: trendColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              for (final section in sections) ...[
+                _MetricSection(section: section),
+                if (section != sections.last) const SizedBox(height: 14),
+              ],
+              const SizedBox(height: 14),
+              Text(
+                '实时行情数据仅供参考，请以交易所实际数据为准。',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color? _priceTone(double? value, double? baseline) {
+    if (value == null || baseline == null) return null;
+    if (value > baseline) return const Color(0xFF2563EB);
+    if (value < baseline) return const Color(0xFF475569);
+    return null;
+  }
+}
+
+class _MetricSectionData {
+  const _MetricSectionData({
+    required this.title,
+    required this.items,
+  });
+
+  final String title;
+  final List<_MetricItem> items;
+}
+
+class _MetricItem {
+  const _MetricItem(
+    this.label,
+    this.value, {
+    this.tone,
+  });
+
+  final String label;
+  final String value;
+  final Color? tone;
+}
+
+class _MetricSection extends StatelessWidget {
+  const _MetricSection({required this.section});
+
+  final _MetricSectionData section;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          section.title,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: const Color(0xFF334155),
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        const SizedBox(height: 9),
+        GridView.builder(
           shrinkWrap: true,
-          itemCount: rows.length,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: section.items.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            childAspectRatio: 1.7,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
+            childAspectRatio: 1.72,
+            crossAxisSpacing: 9,
+            mainAxisSpacing: 9,
           ),
           itemBuilder: (context, index) {
-            final row = rows[index];
+            final item = section.items[index];
             return DecoratedBox(
               decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.42),
+                color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(10),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(row.$1, style: Theme.of(context).textTheme.labelSmall),
-                    const SizedBox(height: 5),
                     Text(
-                      row.$2,
+                      item.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.w900),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF94A3B8),
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 5),
+                    SizedBox(
+                      width: double.infinity,
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            item.value,
+                            maxLines: 1,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                              color: item.tone ?? const Color(0xFF0F172A),
+                              fontWeight: FontWeight.w900,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -384,7 +636,7 @@ class _StatsGrid extends StatelessWidget {
             );
           },
         ),
-      ),
+      ],
     );
   }
 }
