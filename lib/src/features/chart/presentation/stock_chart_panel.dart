@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../market/domain/chart_models.dart';
@@ -168,11 +169,18 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   static const _defaultVisibleCount = 60;
   static const _minVisibleCount = 18;
   static const _maxVisibleCount = 160;
+  static const _tapSlop = 10.0;
+  static const _doubleTapSlop = 36.0;
+  static const _doubleTapTimeout = Duration(milliseconds: 360);
 
   int _visibleCount = _defaultVisibleCount;
   int? _endIndex;
   int _scaleStartVisibleCount = _defaultVisibleCount;
   double _dragRemainder = 0;
+  final Set<int> _activePointers = <int>{};
+  final Map<int, double> _pointerTravel = <int, double>{};
+  DateTime? _lastTapAt;
+  Offset? _lastTapPosition;
 
   @override
   void didUpdateWidget(covariant _KLineCandlestickChart oldWidget) {
@@ -233,124 +241,159 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final step = constraints.maxWidth / math.max(1, visible.length);
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onDoubleTap: _resetWindow,
-          onScaleStart: (_) {
-            _scaleStartVisibleCount = _visibleCount;
+        return Listener(
+          onPointerDown: (event) {
+            _activePointers.add(event.pointer);
+            _pointerTravel[event.pointer] = 0;
             _dragRemainder = 0;
           },
-          onScaleUpdate: (details) {
-            if (details.pointerCount > 1 || (details.scale - 1).abs() >= 0.04) {
-              _zoomWindow(details.scale, enriched.length);
+          onPointerMove: (event) {
+            _pointerTravel[event.pointer] =
+                (_pointerTravel[event.pointer] ?? 0) + event.delta.distance;
+            if (_activePointers.length != 1) return;
+            if (event.kind == PointerDeviceKind.mouse &&
+                (event.buttons & kPrimaryMouseButton) == 0) {
               return;
             }
-            _panWindow(details.focalPointDelta.dx, step);
+            _panWindow(event.delta.dx, step);
           },
-          child: Column(
-            children: [
-              Expanded(
-                child: Stack(
-                  children: [
-                    CandlestickChart(
-                      CandlestickChartData(
-                        candlestickSpots: candleSpots,
-                        minX: 0,
-                        maxX: math.max(1, visible.length - 1).toDouble(),
-                        minY: minY,
-                        maxY: maxY,
-                        clipData: const FlClipData.all(),
-                        gridData: _gridData(scheme),
-                        borderData: FlBorderData(show: false),
-                        titlesData: _titlesData(scheme),
-                        candlestickPainter: DefaultCandlestickPainter(
-                          candlestickStyleProvider: (spot, _) {
-                            final color = _trendColor(spot.close >= spot.open);
-                            return CandlestickStyle(
-                              lineColor: color,
-                              lineWidth: 1.2,
-                              bodyStrokeColor: color,
-                              bodyStrokeWidth: 1,
-                              bodyFillColor: color.withValues(alpha: 0.92),
-                              bodyWidth: candleWidth,
-                              bodyRadius: 2,
-                            );
-                          },
-                        ),
-                        candlestickTouchData: CandlestickTouchData(
-                          touchTooltipData: CandlestickTouchTooltipData(
-                            fitInsideHorizontally: true,
-                            fitInsideVertically: true,
-                            getTooltipColor: (_) => scheme.inverseSurface,
-                            tooltipBorderRadius: BorderRadius.circular(12),
-                            getTooltipItems: (_, spot, spotIndex) {
-                              final index =
-                                  spotIndex.clamp(0, visible.length - 1);
-                              final point = visible[index].point;
-                              return CandlestickTooltipItem(
-                                '${point.date}\n开 ${spot.open.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}',
-                                textStyle: TextStyle(
-                                  color: scheme.onInverseSurface,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
+          onPointerUp: _handlePointerUp,
+          onPointerCancel: _handlePointerCancel,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onDoubleTap: _resetWindow,
+            onScaleStart: (_) {
+              _scaleStartVisibleCount = _visibleCount;
+              _dragRemainder = 0;
+            },
+            onScaleUpdate: (details) {
+              if (details.pointerCount > 1 ||
+                  (details.scale - 1).abs() >= 0.04) {
+                _zoomWindow(details.scale, enriched.length);
+              }
+            },
+            child: Column(
+              children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      CandlestickChart(
+                        CandlestickChartData(
+                          candlestickSpots: candleSpots,
+                          minX: 0,
+                          maxX: math.max(1, visible.length - 1).toDouble(),
+                          minY: minY,
+                          maxY: maxY,
+                          clipData: const FlClipData.all(),
+                          gridData: _gridData(scheme),
+                          borderData: FlBorderData(show: false),
+                          titlesData: _titlesData(scheme),
+                          candlestickPainter: DefaultCandlestickPainter(
+                            candlestickStyleProvider: (spot, _) {
+                              final color =
+                                  _trendColor(spot.close >= spot.open);
+                              return CandlestickStyle(
+                                lineColor: color,
+                                lineWidth: 1.2,
+                                bodyStrokeColor: color,
+                                bodyStrokeWidth: 1,
+                                bodyFillColor: color.withValues(alpha: 0.92),
+                                bodyWidth: candleWidth,
+                                bodyRadius: 2,
                               );
                             },
                           ),
-                        ),
-                      ),
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOutCubic,
-                    ),
-                    if (maBars.isNotEmpty)
-                      IgnorePointer(
-                        child: LineChart(
-                          LineChartData(
-                            minX: 0,
-                            maxX: math.max(1, visible.length - 1).toDouble(),
-                            minY: minY,
-                            maxY: maxY,
-                            clipData: const FlClipData.all(),
-                            gridData: const FlGridData(show: false),
-                            borderData: FlBorderData(show: false),
-                            titlesData: const FlTitlesData(show: false),
-                            lineTouchData: const LineTouchData(enabled: false),
-                            lineBarsData: maBars,
+                          candlestickTouchData: CandlestickTouchData(
+                            touchTooltipData: CandlestickTouchTooltipData(
+                              fitInsideHorizontally: true,
+                              fitInsideVertically: true,
+                              getTooltipColor: (_) => scheme.inverseSurface,
+                              tooltipBorderRadius: BorderRadius.circular(12),
+                              getTooltipItems: (_, spot, spotIndex) {
+                                final index =
+                                    spotIndex.clamp(0, visible.length - 1);
+                                final point = visible[index].point;
+                                return CandlestickTooltipItem(
+                                  '${point.date}\n开 ${spot.open.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}',
+                                  textStyle: TextStyle(
+                                    color: scheme.onInverseSurface,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                );
+                              },
+                            ),
                           ),
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutCubic,
                         ),
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
                       ),
-                    if (maBars.isNotEmpty)
-                      Positioned(
-                        left: 4,
-                        top: 0,
-                        child: Wrap(
-                          spacing: 7,
-                          children: const [
-                            _MaLegend(label: 'MA5', color: Color(0xFFF59E0B)),
-                            _MaLegend(label: 'MA10', color: Color(0xFF3B82F6)),
-                            _MaLegend(label: 'MA20', color: Color(0xFFA855F7)),
-                            _MaLegend(label: 'MA30', color: Color(0xFF22C55E)),
-                            _MaLegend(label: 'MA60', color: Color(0xFF94A3B8)),
-                          ],
+                      if (maBars.isNotEmpty)
+                        IgnorePointer(
+                          child: LineChart(
+                            LineChartData(
+                              minX: 0,
+                              maxX: math.max(1, visible.length - 1).toDouble(),
+                              minY: minY,
+                              maxY: maxY,
+                              clipData: const FlClipData.all(),
+                              gridData: const FlGridData(show: false),
+                              borderData: FlBorderData(show: false),
+                              titlesData: const FlTitlesData(show: false),
+                              lineTouchData:
+                                  const LineTouchData(enabled: false),
+                              lineBarsData: maBars,
+                            ),
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                          ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              if (volumeMax > 0) ...[
-                const SizedBox(height: 4),
-                SizedBox(
-                  height: 46,
-                  child: _KLineVolumeChart(
-                    points: visible,
-                    maxY: volumeMax * 1.12,
-                    barWidth: math.max(1.6, math.min(4.8, step * 0.48)),
+                      if (maBars.isNotEmpty)
+                        Positioned(
+                          left: 4,
+                          top: 0,
+                          child: Wrap(
+                            spacing: 7,
+                            children: const [
+                              _MaLegend(
+                                label: 'MA5',
+                                color: Color(0xFFF59E0B),
+                              ),
+                              _MaLegend(
+                                label: 'MA10',
+                                color: Color(0xFF3B82F6),
+                              ),
+                              _MaLegend(
+                                label: 'MA20',
+                                color: Color(0xFFA855F7),
+                              ),
+                              _MaLegend(
+                                label: 'MA30',
+                                color: Color(0xFF22C55E),
+                              ),
+                              _MaLegend(
+                                label: 'MA60',
+                                color: Color(0xFF94A3B8),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
                 ),
+                if (volumeMax > 0) ...[
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 46,
+                    child: _KLineVolumeChart(
+                      points: visible,
+                      maxY: volumeMax * 1.12,
+                      barWidth: math.max(1.6, math.min(4.8, step * 0.48)),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         );
       },
@@ -430,6 +473,39 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
       _endIndex = null;
       _dragRemainder = 0;
     });
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    final wasSinglePointer = _activePointers.length == 1;
+    final travel = _pointerTravel[event.pointer] ?? double.infinity;
+    _handlePointerCancel(event);
+    if (!wasSinglePointer || travel > _tapSlop) return;
+    _registerTap(event.localPosition);
+  }
+
+  void _handlePointerCancel(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+    _pointerTravel.remove(event.pointer);
+  }
+
+  void _registerTap(Offset position) {
+    final now = DateTime.now();
+    final lastTapAt = _lastTapAt;
+    final lastTapPosition = _lastTapPosition;
+    final isDoubleTap = lastTapAt != null &&
+        now.difference(lastTapAt) <= _doubleTapTimeout &&
+        lastTapPosition != null &&
+        (position - lastTapPosition).distance <= _doubleTapSlop;
+
+    if (isDoubleTap) {
+      _lastTapAt = null;
+      _lastTapPosition = null;
+      _resetWindow();
+      return;
+    }
+
+    _lastTapAt = now;
+    _lastTapPosition = position;
   }
 }
 
