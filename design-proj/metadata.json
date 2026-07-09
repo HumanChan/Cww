@@ -1,0 +1,8 @@
+{
+  "name": "Stock Tracker Pro",
+  "description": "A clean, Flutter-inspired mobile web app for tracking stock market data.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
