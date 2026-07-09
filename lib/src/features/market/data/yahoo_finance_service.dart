@@ -6,6 +6,8 @@ class YahooFinanceService {
   YahooFinanceService(this._dio);
 
   final Dio _dio;
+  String? _crumb;
+  String? _cookieHeader;
 
   Future<List<Stock>> searchStocks(String keyword) async {
     if (keyword.trim().isEmpty) return [];
@@ -45,9 +47,14 @@ class YahooFinanceService {
   Future<List<Stock>> fetchQuotes(List<String> symbols) async {
     if (symbols.isEmpty) return [];
     try {
+      await _ensureSession();
       final response = await _dio.get<dynamic>(
         'https://query1.finance.yahoo.com/v7/finance/quote',
-        queryParameters: {'symbols': symbols.join(',')},
+        queryParameters: {
+          'symbols': symbols.join(','),
+          if (_crumb != null) 'crumb': _crumb,
+        },
+        options: Options(headers: _sessionHeaders()),
       );
       final data = response.data;
       final quoteResponse = data is Map ? data['quoteResponse'] : null;
@@ -57,6 +64,35 @@ class YahooFinanceService {
     } catch (_) {
       return [];
     }
+  }
+
+  Future<void> _ensureSession() async {
+    if (_crumb != null) return;
+    try {
+      final bootstrap = await _dio.get<dynamic>(
+        'https://fc.yahoo.com',
+        options: Options(followRedirects: true),
+      );
+      _cookieHeader = _cookieHeaderFrom(bootstrap.headers);
+
+      final crumbResponse = await _dio.get<String>(
+        'https://query1.finance.yahoo.com/v1/test/getcrumb',
+        options: Options(headers: _sessionHeaders(), responseType: ResponseType.plain),
+      );
+      final crumb = crumbResponse.data?.trim();
+      if (crumb != null && crumb.isNotEmpty && !crumb.contains('<')) {
+        _crumb = crumb;
+      }
+      _cookieHeader = _mergeCookieHeaders(_cookieHeader, _cookieHeaderFrom(crumbResponse.headers));
+    } catch (_) {
+      _crumb = null;
+    }
+  }
+
+  Map<String, String> _sessionHeaders() {
+    final cookieHeader = _cookieHeader;
+    if (cookieHeader == null || cookieHeader.isEmpty) return const {};
+    return {'Cookie': cookieHeader};
   }
 }
 
@@ -103,4 +139,27 @@ double? _safeDouble(Object? value) {
   if (value == null || value == '-' || value == '') return null;
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString());
+}
+
+String? _cookieHeaderFrom(Headers headers) {
+  final cookies = headers.map['set-cookie'];
+  if (cookies == null || cookies.isEmpty) return null;
+  return cookies
+      .map((cookie) => cookie.split(';').first.trim())
+      .where((cookie) => cookie.isNotEmpty)
+      .join('; ');
+}
+
+String? _mergeCookieHeaders(String? first, String? second) {
+  final parts = <String, String>{};
+  for (final header in [first, second].whereType<String>()) {
+    for (final cookie in header.split(';')) {
+      final trimmed = cookie.trim();
+      final separator = trimmed.indexOf('=');
+      if (separator <= 0) continue;
+      parts[trimmed.substring(0, separator)] = trimmed;
+    }
+  }
+  if (parts.isEmpty) return null;
+  return parts.values.join('; ');
 }

@@ -32,7 +32,8 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final stock = _latestStock();
+    final watchlistState = ref.watch(watchlistControllerProvider);
+    final stock = _latestStock(watchlistState);
     final scheme = Theme.of(context).colorScheme;
     final trendColor = stock.isUp ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
     final symbol = currencySymbol(stock);
@@ -166,12 +167,11 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   }
 
   Future<ChartData> _loadChart() {
-    final stock = _latestStock();
+    final stock = _latestStock(ref.read(watchlistControllerProvider));
     return ref.read(marketRepositoryProvider).fetchChart(stock, _chartType);
   }
 
-  Stock _latestStock() {
-    final state = ref.read(watchlistControllerProvider);
+  Stock _latestStock(WatchlistState state) {
     for (final group in state.groups) {
       for (final item in group.stocks) {
         if (item.secid == widget.stock.secid || item.code == widget.stock.code) return item;

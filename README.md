@@ -14,13 +14,17 @@
 
 ## 本机工具链说明
 
-当前环境未检测到 `flutter` 或 `dart` 命令，因此本轮先提交 Flutter 工程源码。安装 Flutter SDK 后，可在仓库根目录执行：
+如果 Flutter SDK 下载在 `D:\Flutter-SDK`，完成后可在仓库根目录执行：
 
-```bash
-flutter create --platforms android,ios .
-flutter pub get
-flutter analyze
-flutter run
+```powershell
+.\tool\flutter_verify.ps1
 ```
 
+该脚本会使用 `D:\Flutter-SDK\flutter\bin\flutter.bat` 生成 Android/iOS 平台目录，随后执行依赖安装、静态分析和测试。
+
 `design-proj/` 仅作为视觉参考目录保留，迁移实现不修改其中内容。
+
+## 文档
+
+- [架构说明](docs/ARCHITECTURE.md)
+- [功能对齐清单](docs/FUNCTION_PARITY.md)

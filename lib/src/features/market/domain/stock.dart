@@ -113,6 +113,7 @@ class Stock {
   Stock mergeQuote(Stock quote) {
     return copyWith(
       name: quote.name.isEmpty ? name : quote.name,
+      secid: quote.secid.isEmpty ? secid : quote.secid,
       market: quote.market,
       type: quote.type,
       price: quote.price,
