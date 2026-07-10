@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,19 +18,40 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="MoYuStock 多市场自选行情，快速跟踪股票、ETF、指数与加密货币。">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F6F8FC">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#070B14">
+  <meta name="color-scheme" content="light dark">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="cww_flutter">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MoYuStock">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>cww_flutter</title>
+  <title>MoYuStock - 多市场自选行情</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #f6f8fc;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      html,
+      body {
+        background: #070b14;
+      }
+    }
+  </style>
 </head>
 <body>
   <!--

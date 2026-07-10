@@ -1,12 +1,12 @@
 {
-    "name": "cww_flutter",
-    "short_name": "cww_flutter",
+    "name": "MoYuStock 多市场自选行情",
+    "short_name": "MoYuStock",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#F6F8FC",
+    "theme_color": "#0F172A",
+    "description": "快速跟踪股票、ETF、指数与加密货币的多市场自选行情。",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

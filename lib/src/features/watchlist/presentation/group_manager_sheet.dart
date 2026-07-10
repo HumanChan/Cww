@@ -1,147 +1,255 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../application/watchlist_controller.dart';
 
-class GroupManagerSheet extends ConsumerWidget {
+class GroupManagerSheet extends ConsumerStatefulWidget {
   const GroupManagerSheet({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GroupManagerSheet> createState() => _GroupManagerSheetState();
+}
+
+class _GroupManagerSheetState extends ConsumerState<GroupManagerSheet> {
+  bool _isImporting = false;
+  bool _isExporting = false;
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(watchlistControllerProvider);
     final controller = ref.read(watchlistControllerProvider.notifier);
-    final scheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 44,
-              height: 5,
-              decoration: BoxDecoration(
-                color: scheme.outlineVariant,
-                borderRadius: BorderRadius.circular(999),
-              ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 760),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.xl,
             ),
-            const SizedBox(height: 18),
-            Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Text(
-                    '管理分组',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.border,
+                    borderRadius: BorderRadius.circular(AppRadii.full),
                   ),
                 ),
-                IconButton.filledTonal(
-                  tooltip: '新增分组',
-                  onPressed: () => _showAddGroupDialog(context, controller),
-                  icon: const Icon(Icons.add_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Flexible(
-              child: ReorderableListView.builder(
-                shrinkWrap: true,
-                itemCount: state.groups.length,
-                onReorderItem: controller.reorderGroups,
-                itemBuilder: (context, index) {
-                  final group = state.groups[index];
-                  return Padding(
-                    key: ValueKey(group.id),
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: DecoratedBox(
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  children: [
+                    Container(
+                      width: AppControlSizes.regular,
+                      height: AppControlSizes.regular,
                       decoration: BoxDecoration(
-                        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-                        borderRadius: BorderRadius.circular(18),
+                        color: colors.brandSoft,
+                        borderRadius: BorderRadius.circular(AppRadii.md),
                       ),
-                      child: ListTile(
-                        leading: const Icon(Icons.drag_indicator_rounded),
-                        title: TextFormField(
-                          initialValue: group.name,
-                          onChanged: (value) => controller.renameGroup(group.id, value),
-                          decoration: const InputDecoration(
-                            isDense: true,
-                            border: InputBorder.none,
-                            filled: false,
-                            contentPadding: EdgeInsets.zero,
+                      child: Icon(Icons.layers_rounded, color: colors.brand),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '管理自选分组',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w800,
+                                ),
                           ),
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
-                        ),
-                        subtitle: Text('${group.stocks.length} 个标的'),
-                        trailing: IconButton(
-                          tooltip: '删除分组',
-                          onPressed: state.groups.length <= 1
-                              ? null
-                              : () => _confirmDeleteGroup(context, controller, group.id),
-                          icon: const Icon(Icons.delete_outline_rounded),
-                        ),
+                          Text(
+                            '拖拽调整顺序，点击名称可直接编辑',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: colors.textTertiary),
+                          ),
+                        ],
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _import(context, controller),
-                    icon: const Icon(Icons.upload_file_rounded),
-                    label: const Text('导入'),
+                    IconButton.filledTonal(
+                      tooltip: '新增分组',
+                      onPressed: () => _showAddGroupDialog(context, controller),
+                      icon: const Icon(Icons.add_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Flexible(
+                  child: Scrollbar(
+                    child: ReorderableListView.builder(
+                      shrinkWrap: true,
+                      buildDefaultDragHandles: false,
+                      itemCount: state.groups.length,
+                      onReorderItem: controller.reorderGroups,
+                      proxyDecorator: (child, index, animation) =>
+                          ScaleTransition(
+                        scale: Tween<double>(begin: 1, end: 1.015)
+                            .animate(animation),
+                        child: child,
+                      ),
+                      itemBuilder: (context, index) {
+                        final group = state.groups[index];
+                        final isActive = group.id == state.activeGroupId;
+                        return Padding(
+                          key: ValueKey(group.id),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.xxs,
+                          ),
+                          child: AnimatedContainer(
+                            duration: AppDurations.standard,
+                            decoration: BoxDecoration(
+                              color: isActive
+                                  ? colors.brandSoft
+                                  : colors.surfaceInteractive,
+                              borderRadius: BorderRadius.circular(AppRadii.lg),
+                              border: Border.all(
+                                color: isActive
+                                    ? colors.brand.withValues(alpha: 0.28)
+                                    : colors.borderSubtle,
+                              ),
+                            ),
+                            child: ListTile(
+                              leading: ReorderableDragStartListener(
+                                index: index,
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.grab,
+                                  child: Padding(
+                                    padding:
+                                        const EdgeInsets.all(AppSpacing.xs),
+                                    child: Icon(
+                                      Icons.drag_indicator_rounded,
+                                      color: colors.textTertiary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              title: TextFormField(
+                                key: ValueKey('name_${group.id}'),
+                                initialValue: group.name,
+                                onChanged: (value) =>
+                                    controller.renameGroup(group.id, value),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  disabledBorder: InputBorder.none,
+                                  filled: false,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(
+                                      color: colors.textPrimary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                              subtitle: Text(
+                                isActive
+                                    ? '当前分组 · ${group.stocks.length} 个标的'
+                                    : '${group.stocks.length} 个标的',
+                              ),
+                              trailing: IconButton(
+                                tooltip: state.groups.length <= 1
+                                    ? '至少保留一个分组'
+                                    : '删除分组',
+                                onPressed: state.groups.length <= 1
+                                    ? null
+                                    : () => _confirmDeleteGroup(
+                                          context,
+                                          controller,
+                                          group.id,
+                                        ),
+                                icon: const Icon(Icons.delete_outline_rounded),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: () async {
-                      await controller.exportGroups();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('已打开系统分享面板导出备份。')),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.ios_share_rounded),
-                    label: const Text('导出'),
-                  ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isImporting || _isExporting
+                            ? null
+                            : () => _import(context, controller),
+                        icon: _isImporting
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.upload_file_rounded),
+                        label: Text(_isImporting ? '导入中…' : '导入备份'),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: _isImporting || _isExporting
+                            ? null
+                            : () => _export(context, controller),
+                        icon: _isExporting
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.ios_share_rounded),
+                        label: Text(_isExporting ? '导出中…' : '导出备份'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Future<void> _import(BuildContext context, WatchlistController controller) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-      withData: true,
-    );
-    final file = result?.files.single;
-    if (file == null) return;
-
+  Future<void> _import(
+    BuildContext context,
+    WatchlistController controller,
+  ) async {
+    if (_isImporting) return;
+    setState(() => _isImporting = true);
     try {
-      final path = file.path;
-      final jsonText = file.bytes != null
-          ? utf8.decode(file.bytes!)
-          : path == null
-              ? throw const FormatException('无法读取所选文件。')
-              : await File(path).readAsString();
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      final file = result?.files.single;
+      if (file == null) return;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        throw const FormatException('无法读取所选文件。');
+      }
+      final jsonText = utf8.decode(bytes);
       await controller.importGroupsFromJson(jsonText);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -154,10 +262,39 @@ class GroupManagerSheet extends ConsumerWidget {
           SnackBar(content: Text(error.toString())),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isImporting = false);
     }
   }
 
-  void _showAddGroupDialog(BuildContext context, WatchlistController controller) {
+  Future<void> _export(
+    BuildContext context,
+    WatchlistController controller,
+  ) async {
+    if (_isExporting) return;
+    setState(() => _isExporting = true);
+    try {
+      await controller.exportGroups();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('备份已准备好，请选择保存或分享方式。')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导出失败：$error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  void _showAddGroupDialog(
+    BuildContext context,
+    WatchlistController controller,
+  ) {
     final textController = TextEditingController();
     showDialog<void>(
       context: context,
@@ -191,7 +328,11 @@ class GroupManagerSheet extends ConsumerWidget {
     );
   }
 
-  void _confirmDeleteGroup(BuildContext context, WatchlistController controller, String groupId) {
+  void _confirmDeleteGroup(
+    BuildContext context,
+    WatchlistController controller,
+    String groupId,
+  ) {
     showDialog<void>(
       context: context,
       builder: (context) {

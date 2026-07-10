@@ -1,5 +1,3 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,6 +21,8 @@ class MoYuStockApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+      themeAnimationDuration: AppDurations.emphasized,
+      themeAnimationCurve: AppMotionCurves.standard,
       builder: (context, child) => _ResponsiveAppFrame(
         child: child ?? const SizedBox.shrink(),
       ),
@@ -40,62 +40,96 @@ class _ResponsiveAppFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 560) return child;
+        if (constraints.maxWidth < AppBreakpoints.medium) {
+          return ColoredBox(color: colors.canvas, child: child);
+        }
 
-        return Scaffold(
-          backgroundColor: AppPalette.shell,
-          body: Stack(
+        final isExpanded = constraints.maxWidth >= AppBreakpoints.expanded;
+        final isShort = constraints.maxHeight < 720;
+        final horizontalInset = isExpanded ? AppSpacing.xxl : 0.0;
+        final verticalInset = isShort ? AppSpacing.xs : AppSpacing.xl;
+
+        return ColoredBox(
+          color: colors.canvasMuted,
+          child: Stack(
+            fit: StackFit.expand,
+            clipBehavior: Clip.hardEdge,
             children: [
-              const _AmbientWash(
-                top: -200,
-                left: -100,
-                color: AppPalette.blue600,
-              ),
-              const _AmbientWash(
-                right: -100,
-                bottom: -200,
-                color: AppPalette.cyan600,
-              ),
-              Center(
-                child: Container(
-                  width: 400,
-                  height: constraints.maxHeight.clamp(720, 850).toDouble(),
-                  decoration: BoxDecoration(
-                    color: AppPalette.phoneFrame,
-                    borderRadius: BorderRadius.circular(50),
-                    border: Border.all(color: AppPalette.phoneFrame, width: 8),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x40000000),
-                        blurRadius: 50,
-                        spreadRadius: -12,
-                        offset: Offset(0, 25),
-                      ),
-                    ],
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: isDark
+                        ? const [
+                            Color(0xFF020617),
+                            Color(0xFF0A1020),
+                            Color(0xFF07141B),
+                          ]
+                        : const [
+                            Color(0xFFEAF1FF),
+                            Color(0xFFF4F7FC),
+                            Color(0xFFEAF8F8),
+                          ],
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    children: [
-                      Container(
-                        height: 24,
-                        alignment: Alignment.bottomCenter,
-                        color: AppPalette.phoneFrame,
-                        child: Container(
-                          width: 96,
-                          height: 14,
-                          decoration: const BoxDecoration(
-                            color: AppPalette.phoneNotch,
-                            borderRadius: BorderRadius.vertical(
-                              bottom: Radius.circular(14),
+                ),
+              ),
+              _AmbientWash(
+                center: const Alignment(-0.92, -0.88),
+                color: colors.brand,
+                opacity: isDark ? 0.18 : 0.13,
+              ),
+              _AmbientWash(
+                center: const Alignment(0.94, 0.90),
+                color: colors.info,
+                opacity: isDark ? 0.13 : 0.10,
+              ),
+              SafeArea(
+                minimum: EdgeInsets.symmetric(
+                  horizontal: horizontalInset,
+                  vertical: verticalInset,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, frameConstraints) {
+                    final radius = frameConstraints.maxHeight < 480
+                        ? AppRadii.md
+                        : AppRadii.xxl;
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: AppBreakpoints.maxContentWidth,
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: frameConstraints.maxHeight,
+                          child: Container(
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: colors.canvas,
+                              borderRadius: BorderRadius.circular(radius),
+                              border: Border.all(color: colors.borderSubtle),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(
+                                    alpha: isDark ? 0.34 : 0.13,
+                                  ),
+                                  blurRadius: 40,
+                                  spreadRadius: -10,
+                                  offset: const Offset(0, 18),
+                                ),
+                              ],
                             ),
+                            child: child,
                           ),
                         ),
                       ),
-                      Expanded(child: child),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -108,34 +142,31 @@ class _ResponsiveAppFrame extends StatelessWidget {
 
 class _AmbientWash extends StatelessWidget {
   const _AmbientWash({
-    this.top,
-    this.right,
-    this.bottom,
-    this.left,
+    required this.center,
     required this.color,
+    required this.opacity,
   });
 
-  final double? top;
-  final double? right;
-  final double? bottom;
-  final double? left;
+  final Alignment center;
   final Color color;
+  final double opacity;
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      top: top,
-      right: right,
-      bottom: bottom,
-      left: left,
-      child: ImageFiltered(
-        imageFilter: ui.ImageFilter.blur(sigmaX: 120, sigmaY: 120),
+    return IgnorePointer(
+      child: RepaintBoundary(
         child: DecoratedBox(
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color.withValues(alpha: 0.20),
+            gradient: RadialGradient(
+              center: center,
+              radius: 1.05,
+              colors: [
+                color.withValues(alpha: opacity),
+                color.withValues(alpha: 0),
+              ],
+              stops: const [0, 0.72],
+            ),
           ),
-          child: const SizedBox.square(dimension: 500),
         ),
       ),
     );

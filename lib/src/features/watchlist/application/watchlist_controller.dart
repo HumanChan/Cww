@@ -45,6 +45,7 @@ class WatchlistState {
     this.searchMode = SearchMode.stock,
     this.searchQuery = '',
     this.searchResults = const [],
+    this.searchError,
     this.error,
     this.lastUpdated,
     this.flashingCodes = const {},
@@ -59,6 +60,7 @@ class WatchlistState {
   final SearchMode searchMode;
   final String searchQuery;
   final List<Stock> searchResults;
+  final String? searchError;
   final String? error;
   final DateTime? lastUpdated;
   final Set<String> flashingCodes;
@@ -79,6 +81,7 @@ class WatchlistState {
     SearchMode? searchMode,
     String? searchQuery,
     List<Stock>? searchResults,
+    Object? searchError = _notSet,
     Object? error = _notSet,
     DateTime? lastUpdated,
     Set<String>? flashingCodes,
@@ -93,6 +96,8 @@ class WatchlistState {
       searchMode: searchMode ?? this.searchMode,
       searchQuery: searchQuery ?? this.searchQuery,
       searchResults: searchResults ?? this.searchResults,
+      searchError:
+          searchError == _notSet ? this.searchError : searchError as String?,
       error: error == _notSet ? this.error : error as String?,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       flashingCodes: flashingCodes ?? this.flashingCodes,
@@ -108,6 +113,8 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   final MarketRepository _repository;
   Timer? _pollTimer;
   Timer? _searchDebounce;
+  Timer? _renamePersistDebounce;
+  int _refreshGeneration = 0;
   bool _pollingEnabled = true;
   bool _isDisposed = false;
 
@@ -116,6 +123,7 @@ class WatchlistController extends StateNotifier<WatchlistState> {
     _isDisposed = true;
     _pollTimer?.cancel();
     _searchDebounce?.cancel();
+    _renamePersistDebounce?.cancel();
     super.dispose();
   }
 
@@ -156,7 +164,12 @@ class WatchlistController extends StateNotifier<WatchlistState> {
 
   void setActiveGroup(String groupId) {
     if (groupId == state.activeGroupId) return;
-    state = state.copyWith(activeGroupId: groupId);
+    _refreshGeneration += 1;
+    state = state.copyWith(
+      activeGroupId: groupId,
+      isRefreshing: false,
+      error: null,
+    );
     unawaited(_repository.saveActiveGroupId(groupId));
     _scheduleNextPoll(immediate: true);
   }
@@ -180,14 +193,26 @@ class WatchlistController extends StateNotifier<WatchlistState> {
       return group.id == groupId ? group.copyWith(name: name) : group;
     }).toList();
     state = state.copyWith(groups: groups);
-    _persistGroups();
+    _renamePersistDebounce?.cancel();
+    _renamePersistDebounce = Timer(
+      const Duration(milliseconds: 380),
+      _persistGroups,
+    );
   }
 
   void deleteGroup(String groupId) {
     if (state.groups.length <= 1) return;
+    if (groupId == state.activeGroupId) {
+      _refreshGeneration += 1;
+    }
     final groups = state.groups.where((group) => group.id != groupId).toList();
-    final activeId = state.activeGroupId == groupId ? groups.first.id : state.activeGroupId;
-    state = state.copyWith(groups: groups, activeGroupId: activeId);
+    final activeId =
+        state.activeGroupId == groupId ? groups.first.id : state.activeGroupId;
+    state = state.copyWith(
+      groups: groups,
+      activeGroupId: activeId,
+      isRefreshing: false,
+    );
     _persistGroups();
     unawaited(_repository.saveActiveGroupId(activeId));
   }
@@ -202,7 +227,10 @@ class WatchlistController extends StateNotifier<WatchlistState> {
 
   void addStock(Stock stock) {
     final active = state.activeGroup;
-    if (active == null || active.stocks.any((item) => item.code == stock.code)) return;
+    if (active == null ||
+        active.stocks.any((item) => item.code == stock.code)) {
+      return;
+    }
     _replaceActiveStocks([...active.stocks, stock]);
     setSearchQuery('');
   }
@@ -210,7 +238,9 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   void removeStock(String code) {
     final active = state.activeGroup;
     if (active == null) return;
-    _replaceActiveStocks(active.stocks.where((stock) => stock.code != code).toList());
+    _replaceActiveStocks(
+      active.stocks.where((stock) => stock.code != code).toList(),
+    );
   }
 
   void reorderStocks(int oldIndex, int newIndex) {
@@ -223,18 +253,21 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   }
 
   void toggleSearchMode() {
-    final next = state.searchMode == SearchMode.stock ? SearchMode.crypto : SearchMode.stock;
+    final next = state.searchMode == SearchMode.stock
+        ? SearchMode.crypto
+        : SearchMode.stock;
     _searchDebounce?.cancel();
     state = state.copyWith(
       searchMode: next,
       searchQuery: '',
       searchResults: const [],
       isSearching: false,
+      searchError: null,
     );
   }
 
   void setSearchQuery(String query) {
-    state = state.copyWith(searchQuery: query, error: null);
+    state = state.copyWith(searchQuery: query, searchError: null);
     _searchDebounce?.cancel();
 
     if (query.trim().isEmpty) {
@@ -276,15 +309,20 @@ class WatchlistController extends StateNotifier<WatchlistState> {
 
   Future<void> _runSearch(String query) async {
     try {
-      final results = await _repository.search(query, state.searchMode.stockType);
+      final results =
+          await _repository.search(query, state.searchMode.stockType);
       if (_isDisposed || query != state.searchQuery) return;
-      state = state.copyWith(searchResults: results, isSearching: false);
+      state = state.copyWith(
+        searchResults: results,
+        isSearching: false,
+        searchError: null,
+      );
     } catch (_) {
-      if (_isDisposed) return;
+      if (_isDisposed || query != state.searchQuery) return;
       state = state.copyWith(
         searchResults: const [],
         isSearching: false,
-        error: '搜索失败，请稍后重试。',
+        searchError: '搜索失败，请稍后重试。',
       );
     }
   }
@@ -297,50 +335,72 @@ class WatchlistController extends StateNotifier<WatchlistState> {
       return;
     }
 
-    state = state.copyWith(isRefreshing: true);
+    final requestGeneration = ++_refreshGeneration;
+    final groupId = active.id;
+    state = state.copyWith(isRefreshing: true, error: null);
     try {
       final quotes = await _repository.fetchQuotes(active.stocks);
-      if (_isDisposed) return;
+      if (_isDisposed || requestGeneration != _refreshGeneration) return;
+      if (quotes.isEmpty) {
+        throw StateError('行情源未返回有效数据。');
+      }
+
+      final groupIndex =
+          state.groups.indexWhere((group) => group.id == groupId);
+      if (groupIndex < 0) return;
+      final currentGroup = state.groups[groupIndex];
       final quoteByCode = {for (final quote in quotes) quote.code: quote};
       final flashCodes = <String>{};
-      final updatedStocks = active.stocks.map((stock) {
+      final updatedStocks = currentGroup.stocks.map((stock) {
         final quote = quoteByCode[stock.code];
         if (quote == null) return stock;
-        if (quote.price != null && quote.price != stock.price) flashCodes.add(stock.code);
+        if (quote.price != null && quote.price != stock.price) {
+          flashCodes.add(stock.code);
+        }
         return stock.mergeQuote(quote);
       }).toList();
-      _replaceActiveStocks(updatedStocks, persist: false);
+      _replaceGroupStocks(groupId, updatedStocks, persist: false);
       state = state.copyWith(
         isRefreshing: false,
         lastUpdated: DateTime.now(),
         flashingCodes: flashCodes,
         error: null,
       );
-      _persistGroups();
       if (flashCodes.isNotEmpty) {
         Timer(const Duration(milliseconds: 520), () {
           if (!_isDisposed) state = state.copyWith(flashingCodes: const {});
         });
       }
     } catch (_) {
-      if (!_isDisposed) {
+      if (!_isDisposed && requestGeneration == _refreshGeneration) {
         state = state.copyWith(isRefreshing: false, error: '行情刷新失败，已保留本地数据。');
       }
     } finally {
-      _scheduleNextPoll();
+      if (requestGeneration == _refreshGeneration) {
+        _scheduleNextPoll();
+      }
     }
   }
 
   void _scheduleNextPoll({bool immediate = false}) {
     _pollTimer?.cancel();
     if (!_pollingEnabled || _isDisposed) return;
-    _pollTimer = Timer(immediate ? Duration.zero : const Duration(seconds: 1), () {
+    _pollTimer =
+        Timer(immediate ? Duration.zero : const Duration(seconds: 1), () {
       unawaited(_refreshQuotes());
     });
   }
 
   void _replaceActiveStocks(List<Stock> stocks, {bool persist = true}) {
-    final index = state.groups.indexWhere((group) => group.id == state.activeGroupId);
+    _replaceGroupStocks(state.activeGroupId, stocks, persist: persist);
+  }
+
+  void _replaceGroupStocks(
+    String groupId,
+    List<Stock> stocks, {
+    bool persist = true,
+  }) {
+    final index = state.groups.indexWhere((group) => group.id == groupId);
     if (index < 0) return;
     final groups = [...state.groups];
     groups[index] = groups[index].copyWith(stocks: stocks);

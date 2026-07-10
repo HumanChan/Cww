@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -358,15 +357,16 @@ class MarketRepository {
   }
 
   Future<void> exportGroups(List<StockGroup> groups) async {
-    final dir = await getTemporaryDirectory();
-    final file = File(
-      '${dir.path}/moyustock_backup_${DateTime.now().toIso8601String().split('T').first}.json',
+    final date = DateTime.now().toIso8601String().split('T').first;
+    final json = const JsonEncoder.withIndent('  ').convert(
+      groups.map((group) => group.toJson()).toList(),
     );
-    await file.writeAsString(
-      const JsonEncoder.withIndent('  ')
-          .convert(groups.map((group) => group.toJson()).toList()),
+    final file = XFile.fromData(
+      Uint8List.fromList(utf8.encode(json)),
+      mimeType: 'application/json',
+      name: 'moyustock_backup_$date.json',
     );
-    await Share.shareXFiles([XFile(file.path)], text: 'MoYuStock 自选股备份');
+    await Share.shareXFiles([file], text: 'MoYuStock 自选股备份');
   }
 
   Future<List<StockGroup>> parseImportedGroups(String jsonText) async {

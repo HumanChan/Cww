@@ -12,118 +12,93 @@ class StockChartPanel extends StatelessWidget {
   const StockChartPanel({
     required this.stock,
     required this.data,
+    this.onRetry,
     super.key,
   });
 
   final Stock stock;
   final ChartData data;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final previewIntraday =
-        data.type == ChartType.intraday && data.intraday.isEmpty;
-    final intradayPoints =
-        previewIntraday ? _previewIntradayPoints(stock) : data.intraday;
     final hasData = data.type == ChartType.intraday
-        ? intradayPoints.isNotEmpty
+        ? data.intraday.isNotEmpty
         : data.kLine.isNotEmpty;
     if (!hasData) {
-      return Center(
-        child: Text(
-          '暂无图表数据',
-          style:
-              TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-        ),
-      );
+      return _ChartEmptyState(onRetry: onRetry);
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.sm,
+        0,
+        AppSpacing.sm,
+        AppSpacing.md,
+      ),
       child: data.type == ChartType.intraday
-          ? Stack(
-              children: [
-                _IntradayLineChart(stock: stock, points: intradayPoints),
-                if (previewIntraday) const _PreviewBadge(),
-              ],
-            )
+          ? _IntradayLineChart(stock: stock, points: data.intraday)
           : _KLineCandlestickChart(points: data.kLine),
     );
   }
 }
 
-class _PreviewBadge extends StatelessWidget {
-  const _PreviewBadge();
+class _ChartEmptyState extends StatelessWidget {
+  const _ChartEmptyState({this.onRetry});
+
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      top: 2,
-      right: 16,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.82),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: AppPalette.slate200),
-        ),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Text(
-            '预览走势',
-            style: TextStyle(
-              color: AppPalette.slate400,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
+    final colors = context.appColors;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: colors.surfaceInteractive,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: colors.borderSubtle),
+              ),
+              child: Icon(
+                Icons.query_stats_rounded,
+                color: colors.textTertiary,
+              ),
             ),
-          ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              '暂无可用走势数据',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '行情源暂未返回该周期数据，未使用模拟走势。',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textTertiary,
+                  ),
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('重新加载'),
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
-}
-
-List<ChartPoint> _previewIntradayPoints(Stock stock) {
-  final baseline = stock.preClose ?? stock.open ?? stock.price ?? 100;
-  if (baseline <= 0) return const [];
-  final target = stock.price ?? baseline * (stock.isUp ? 1.018 : 0.982);
-  final direction = target >= baseline ? 1.0 : -1.0;
-  final trough = baseline * (1 - direction * 0.024);
-  final points = <ChartPoint>[];
-  var avg = baseline;
-
-  for (var i = 0; i < 60; i++) {
-    final t = i / 59;
-    late final double price;
-    if (t < 0.36) {
-      final local = t / 0.36;
-      price =
-          _lerp(baseline, trough, local) + math.sin(i * 1.7) * baseline * 0.004;
-    } else if (t < 0.66) {
-      final local = (t - 0.36) / 0.30;
-      price = _lerp(trough, target, Curves.easeOutCubic.transform(local)) +
-          math.sin(i * 1.1) * baseline * 0.003;
-    } else {
-      final local = (t - 0.66) / 0.34;
-      price = _lerp(target * (1 - direction * 0.004), target, local);
-    }
-    avg = avg + (price - avg) * 0.075;
-    points.add(
-      ChartPoint(
-        time: i == 0
-            ? '09:30'
-            : i == 59
-                ? '15:00'
-                : '',
-        price: price,
-        avg: avg,
-        volume: 800000 + math.sin(i * 0.9).abs() * 2800000,
-      ),
-    );
-  }
-  return points;
-}
-
-double _lerp(double start, double end, double t) {
-  return start + (end - start) * t.clamp(0, 1);
 }
 
 class _IntradayLineChart extends StatelessWidget {
@@ -138,7 +113,12 @@ class _IntradayLineChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final trendColor = _trendColor(stock.isUp);
+    final colors = context.appColors;
+    final trendColor = stock.percent == null || stock.percent == 0
+        ? colors.flat
+        : stock.percent! > 0
+            ? colors.gain
+            : colors.loss;
     final priceSpots = <FlSpot>[];
     final avgSpots = <FlSpot>[];
     for (var i = 0; i < points.length; i++) {
@@ -196,7 +176,7 @@ class _IntradayLineChart extends StatelessWidget {
                       radius: 3.4,
                       color: barData.color ?? trendColor,
                       strokeWidth: 2,
-                      strokeColor: Colors.white,
+                      strokeColor: colors.surface,
                     );
                   },
                 ),
@@ -265,7 +245,7 @@ class _IntradayLineChart extends StatelessWidget {
           if (avgSpots.length > 1)
             LineChartBarData(
               spots: avgSpots,
-              color: const Color(0xFFF59E0B),
+              color: colors.ma5,
               barWidth: 1.4,
               isCurved: true,
               curveSmoothness: 0.14,
@@ -274,8 +254,7 @@ class _IntradayLineChart extends StatelessWidget {
             ),
         ],
       ),
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeOutCubic,
+      duration: Duration.zero,
     );
   }
 }
@@ -303,6 +282,7 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   int? _endIndex;
   int _scaleStartVisibleCount = _defaultVisibleCount;
   double _dragRemainder = 0;
+  late List<_KLinePointWithMa> _enrichedPoints;
   final Set<int> _activePointers = <int>{};
   final Map<int, double> _pointerTravel = <int, double>{};
   DateTime? _lastTapAt;
@@ -310,8 +290,17 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   int? _touchedIndex;
 
   @override
+  void initState() {
+    super.initState();
+    _enrichedPoints = _withMovingAverages(widget.points);
+  }
+
+  @override
   void didUpdateWidget(covariant _KLineCandlestickChart oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.points, widget.points)) {
+      _enrichedPoints = _withMovingAverages(widget.points);
+    }
     if (oldWidget.points.length != widget.points.length) {
       _endIndex = null;
       _touchedIndex = null;
@@ -330,7 +319,8 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final enriched = _withMovingAverages(widget.points);
+    final colors = context.appColors;
+    final enriched = _enrichedPoints;
     final visible = _visibleWindow(enriched);
     final candleSpots = [
       for (var i = 0; i < visible.length; i++)
@@ -358,9 +348,7 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
         .where((value) => value > 0)
         .toList();
     final (minY, maxY) = _paddedDomain(values, 0.06);
-    final candleWidth =
-        math.max(3.0, math.min(10.0, 280 / math.max(8, visible.length) * 0.62));
-    final maBars = _movingAverageBars(visible);
+    final maBars = _movingAverageBars(visible, colors);
     final touchedItem = _selectedKLinePoint(visible);
     final volumeMax = visible
         .map((item) => item.point.volume)
@@ -370,158 +358,185 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final step = constraints.maxWidth / math.max(1, visible.length);
-        return Listener(
-          onPointerDown: (event) {
-            _activePointers.add(event.pointer);
-            _pointerTravel[event.pointer] = 0;
-            _dragRemainder = 0;
-          },
-          onPointerMove: (event) {
-            _pointerTravel[event.pointer] =
-                (_pointerTravel[event.pointer] ?? 0) + event.delta.distance;
-            if (_activePointers.length != 1) return;
-            if (event.kind == PointerDeviceKind.mouse &&
-                (event.buttons & kPrimaryMouseButton) == 0) {
-              return;
-            }
-            _panWindow(event.delta.dx, step);
-          },
-          onPointerUp: _handlePointerUp,
-          onPointerCancel: _handlePointerCancel,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onDoubleTap: _resetWindow,
-            onScaleStart: (_) {
-              _scaleStartVisibleCount = _visibleCount;
-              _dragRemainder = 0;
-            },
-            onScaleUpdate: (details) {
-              if (details.pointerCount > 1 ||
-                  (details.scale - 1).abs() >= 0.04) {
-                _zoomWindow(details.scale, enriched.length);
+        final candleWidth = math.max(
+          3.0,
+          math.min(
+            11.0,
+            constraints.maxWidth / math.max(8, visible.length) * 0.58,
+          ),
+        );
+        return MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent) {
+                GestureBinding.instance.pointerSignalResolver.register(
+                  event,
+                  (resolvedEvent) => _zoomWithWheel(
+                    (resolvedEvent as PointerScrollEvent).scrollDelta.dy,
+                    enriched.length,
+                  ),
+                );
               }
             },
-            child: Column(
-              children: [
-                Expanded(
-                  child: Stack(
-                    children: [
-                      CandlestickChart(
-                        CandlestickChartData(
-                          candlestickSpots: candleSpots,
-                          minX: 0,
-                          maxX: math.max(1, visible.length - 1).toDouble(),
-                          minY: minY,
-                          maxY: maxY,
-                          clipData: const FlClipData.all(),
-                          gridData: _gridData(scheme),
-                          borderData: FlBorderData(show: false),
-                          titlesData: _titlesData(scheme),
-                          candlestickPainter: DefaultCandlestickPainter(
-                            candlestickStyleProvider: (spot, _) {
-                              final color =
-                                  _trendColor(spot.close >= spot.open);
-                              return CandlestickStyle(
-                                lineColor: color,
-                                lineWidth: 1.2,
-                                bodyStrokeColor: color,
-                                bodyStrokeWidth: 1,
-                                bodyFillColor: color.withValues(alpha: 0.92),
-                                bodyWidth: candleWidth,
-                                bodyRadius: 2,
-                              );
-                            },
-                          ),
-                          candlestickTouchData: CandlestickTouchData(
-                            touchSpotThreshold: math.max(
-                              8,
-                              candleWidth * 0.75,
+            onPointerDown: (event) {
+              _activePointers.add(event.pointer);
+              _pointerTravel[event.pointer] = 0;
+              _dragRemainder = 0;
+            },
+            onPointerMove: (event) {
+              _pointerTravel[event.pointer] =
+                  (_pointerTravel[event.pointer] ?? 0) + event.delta.distance;
+              if (_activePointers.length != 1) return;
+              if (event.kind == PointerDeviceKind.mouse &&
+                  (event.buttons & kPrimaryMouseButton) == 0) {
+                return;
+              }
+              _panWindow(event.delta.dx, step);
+            },
+            onPointerUp: _handlePointerUp,
+            onPointerCancel: _handlePointerCancel,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onDoubleTap: _resetWindow,
+              onScaleStart: (_) {
+                _scaleStartVisibleCount = _visibleCount;
+                _dragRemainder = 0;
+              },
+              onScaleUpdate: (details) {
+                if (details.pointerCount > 1 ||
+                    (details.scale - 1).abs() >= 0.04) {
+                  _zoomWindow(details.scale, enriched.length);
+                }
+              },
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        CandlestickChart(
+                          CandlestickChartData(
+                            candlestickSpots: candleSpots,
+                            minX: 0,
+                            maxX: math.max(1, visible.length - 1).toDouble(),
+                            minY: minY,
+                            maxY: maxY,
+                            clipData: const FlClipData.all(),
+                            gridData: _gridData(scheme),
+                            borderData: FlBorderData(show: false),
+                            titlesData: _titlesData(
+                              scheme,
+                              bottomStartLabel: visible.first.point.date,
+                              bottomEndLabel: visible.last.point.date,
                             ),
-                            touchCallback: (event, response) =>
-                                _handleCandlestickTouch(
-                              event,
-                              response,
-                              visible.length,
-                            ),
-                            touchTooltipData: CandlestickTouchTooltipData(
-                              fitInsideHorizontally: true,
-                              fitInsideVertically: true,
-                              tooltipPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 9,
-                              ),
-                              maxContentWidth: 190,
-                              getTooltipColor: (_) => scheme.inverseSurface,
-                              tooltipBorderRadius: BorderRadius.circular(12),
-                              getTooltipItems: (_, spot, spotIndex) {
-                                final index =
-                                    spotIndex.clamp(0, visible.length - 1);
-                                final item = visible[index];
-                                final point = item.point;
-                                return CandlestickTooltipItem(
-                                  '${point.date}\n'
-                                  '开 ${spot.open.toStringAsFixed(2)}  高 ${spot.high.toStringAsFixed(2)}\n'
-                                  '低 ${spot.low.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}\n'
-                                  '量 ${_compactVolume(point.volume)}\n'
-                                  '${_maTooltipLine(item)}',
-                                  textStyle: TextStyle(
-                                    color: scheme.onInverseSurface,
-                                    fontSize: 10.5,
-                                    height: 1.32,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                  textAlign: TextAlign.left,
+                            candlestickPainter: DefaultCandlestickPainter(
+                              candlestickStyleProvider: (spot, _) {
+                                final color = spot.close == spot.open
+                                    ? colors.flat
+                                    : spot.close > spot.open
+                                        ? colors.gain
+                                        : colors.loss;
+                                return CandlestickStyle(
+                                  lineColor: color,
+                                  lineWidth: 1.2,
+                                  bodyStrokeColor: color,
+                                  bodyStrokeWidth: 1,
+                                  bodyFillColor: color.withValues(alpha: 0.92),
+                                  bodyWidth: candleWidth,
+                                  bodyRadius: 2,
                                 );
                               },
                             ),
-                          ),
-                        ),
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                      ),
-                      if (maBars.isNotEmpty)
-                        IgnorePointer(
-                          child: LineChart(
-                            LineChartData(
-                              minX: 0,
-                              maxX: math.max(1, visible.length - 1).toDouble(),
-                              minY: minY,
-                              maxY: maxY,
-                              clipData: const FlClipData.all(),
-                              gridData: const FlGridData(show: false),
-                              borderData: FlBorderData(show: false),
-                              titlesData: const FlTitlesData(show: false),
-                              lineTouchData:
-                                  const LineTouchData(enabled: false),
-                              lineBarsData: maBars,
+                            candlestickTouchData: CandlestickTouchData(
+                              touchSpotThreshold: math.max(
+                                8,
+                                candleWidth * 0.75,
+                              ),
+                              touchCallback: (event, response) =>
+                                  _handleCandlestickTouch(
+                                event,
+                                response,
+                                visible.length,
+                              ),
+                              touchTooltipData: CandlestickTouchTooltipData(
+                                fitInsideHorizontally: true,
+                                fitInsideVertically: true,
+                                tooltipPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 9,
+                                ),
+                                maxContentWidth: 190,
+                                getTooltipColor: (_) => scheme.inverseSurface,
+                                tooltipBorderRadius: BorderRadius.circular(12),
+                                getTooltipItems: (_, spot, spotIndex) {
+                                  final index =
+                                      spotIndex.clamp(0, visible.length - 1);
+                                  final item = visible[index];
+                                  final point = item.point;
+                                  return CandlestickTooltipItem(
+                                    '${point.date}\n'
+                                    '开 ${spot.open.toStringAsFixed(2)}  高 ${spot.high.toStringAsFixed(2)}\n'
+                                    '低 ${spot.low.toStringAsFixed(2)}  收 ${spot.close.toStringAsFixed(2)}\n'
+                                    '量 ${_compactVolume(point.volume)}\n'
+                                    '${_maTooltipLine(item)}',
+                                    textStyle: TextStyle(
+                                      color: scheme.onInverseSurface,
+                                      fontSize: 10.5,
+                                      height: 1.32,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    textAlign: TextAlign.left,
+                                  );
+                                },
+                              ),
                             ),
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOutCubic,
                           ),
+                          duration: Duration.zero,
                         ),
-                      if (maBars.isNotEmpty)
-                        Positioned(
-                          left: 4,
-                          top: 0,
-                          right: 4,
-                          child: _MaLegendStrip(item: touchedItem),
-                        ),
-                    ],
-                  ),
-                ),
-                if (volumeMax > 0) ...[
-                  const SizedBox(height: 4),
-                  SizedBox(
-                    height: 46,
-                    child: _KLineVolumeChart(
-                      points: visible,
-                      maxY: volumeMax * 1.12,
-                      barWidth: math.max(1.6, math.min(4.8, step * 0.48)),
-                      selectedIndex: _touchedIndex,
+                        if (maBars.isNotEmpty)
+                          IgnorePointer(
+                            child: LineChart(
+                              LineChartData(
+                                minX: 0,
+                                maxX:
+                                    math.max(1, visible.length - 1).toDouble(),
+                                minY: minY,
+                                maxY: maxY,
+                                clipData: const FlClipData.all(),
+                                gridData: const FlGridData(show: false),
+                                borderData: FlBorderData(show: false),
+                                titlesData: const FlTitlesData(show: false),
+                                lineTouchData:
+                                    const LineTouchData(enabled: false),
+                                lineBarsData: maBars,
+                              ),
+                              duration: Duration.zero,
+                            ),
+                          ),
+                        if (maBars.isNotEmpty)
+                          Positioned(
+                            left: 4,
+                            top: 0,
+                            right: 4,
+                            child: _MaLegendStrip(item: touchedItem),
+                          ),
+                      ],
                     ),
                   ),
+                  if (volumeMax > 0) ...[
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      height: 46,
+                      child: _KLineVolumeChart(
+                        points: visible,
+                        maxY: volumeMax * 1.12,
+                        barWidth: math.max(1.6, math.min(4.8, step * 0.48)),
+                        selectedIndex: _touchedIndex,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         );
@@ -582,6 +597,21 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
           _minVisibleCount,
           math.min(_maxVisibleCount, total),
         )
+        .toInt();
+    if (next == _visibleCount) return;
+    setState(() {
+      _visibleCount = next;
+      _touchedIndex = null;
+      _endIndex =
+          (_endIndex ?? total - 1).clamp(_visibleCount - 1, total - 1).toInt();
+    });
+  }
+
+  void _zoomWithWheel(double deltaY, int total) {
+    if (deltaY == 0 || total <= _minVisibleCount) return;
+    final step = math.max(2, (_visibleCount * 0.10).round());
+    final next = (_visibleCount + (deltaY > 0 ? step : -step))
+        .clamp(_minVisibleCount, math.min(_maxVisibleCount, total))
         .toInt();
     if (next == _visibleCount) return;
     setState(() {
@@ -681,6 +711,7 @@ class _KLineVolumeChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
     final selected = selectedIndex != null &&
             selectedIndex! >= 0 &&
             selectedIndex! < points.length
@@ -732,9 +763,14 @@ class _KLineVolumeChart extends StatelessWidget {
                     BarChartRodData(
                       toY: math.max(0, points[i].point.volume),
                       width: selectedIndex == i ? barWidth * 1.28 : barWidth,
-                      color: _trendColor(
-                        points[i].point.close >= points[i].point.open,
-                      ).withValues(alpha: selectedIndex == i ? 0.72 : 0.38),
+                      color: (points[i].point.close == points[i].point.open
+                              ? colors.flat
+                              : points[i].point.close > points[i].point.open
+                                  ? colors.gain
+                                  : colors.loss)
+                          .withValues(
+                        alpha: selectedIndex == i ? 0.72 : 0.38,
+                      ),
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(1.5),
                       ),
@@ -743,8 +779,7 @@ class _KLineVolumeChart extends StatelessWidget {
                 ),
             ],
           ),
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
+          duration: Duration.zero,
         ),
         if (selectedIndex != null)
           Positioned.fill(
@@ -765,16 +800,16 @@ class _KLineVolumeChart extends StatelessWidget {
             top: 1,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.82),
+                color: colors.surfaceGlass,
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: AppPalette.slate200),
+                border: Border.all(color: colors.borderSubtle),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 child: Text(
                   '量 ${_compactVolume(selected.point.volume)}',
-                  style: const TextStyle(
-                    color: AppPalette.slate500,
+                  style: TextStyle(
+                    color: colors.textSecondary,
                     fontSize: 9,
                     fontWeight: FontWeight.w900,
                   ),
@@ -812,6 +847,7 @@ class _MaLegendStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Wrap(
       spacing: 7,
       runSpacing: 2,
@@ -819,27 +855,27 @@ class _MaLegendStrip extends StatelessWidget {
         _MaLegendText(
           label: 'MA5',
           value: item?.ma5,
-          color: const Color(0xFFF59E0B),
+          color: colors.ma5,
         ),
         _MaLegendText(
           label: 'MA10',
           value: item?.ma10,
-          color: const Color(0xFF3B82F6),
+          color: colors.ma10,
         ),
         _MaLegendText(
           label: 'MA20',
           value: item?.ma20,
-          color: const Color(0xFFA855F7),
+          color: colors.ma20,
         ),
         _MaLegendText(
           label: 'MA30',
           value: item?.ma30,
-          color: const Color(0xFF22C55E),
+          color: colors.ma30,
         ),
         _MaLegendText(
           label: 'MA60',
           value: item?.ma60,
-          color: const Color(0xFF94A3B8),
+          color: colors.ma60,
         ),
       ],
     );
@@ -929,13 +965,16 @@ List<_KLinePointWithMa> _withMovingAverages(List<KLinePoint> points) {
   ];
 }
 
-List<LineChartBarData> _movingAverageBars(List<_KLinePointWithMa> points) {
+List<LineChartBarData> _movingAverageBars(
+  List<_KLinePointWithMa> points,
+  AppColors colors,
+) {
   final bars = [
-    _movingAverageBar(points, (point) => point.ma5, const Color(0xFFF59E0B)),
-    _movingAverageBar(points, (point) => point.ma10, const Color(0xFF3B82F6)),
-    _movingAverageBar(points, (point) => point.ma20, const Color(0xFFA855F7)),
-    _movingAverageBar(points, (point) => point.ma30, const Color(0xFF22C55E)),
-    _movingAverageBar(points, (point) => point.ma60, const Color(0xFF94A3B8)),
+    _movingAverageBar(points, (point) => point.ma5, colors.ma5),
+    _movingAverageBar(points, (point) => point.ma10, colors.ma10),
+    _movingAverageBar(points, (point) => point.ma20, colors.ma20),
+    _movingAverageBar(points, (point) => point.ma30, colors.ma30),
+    _movingAverageBar(points, (point) => point.ma60, colors.ma60),
   ];
   return bars.whereType<LineChartBarData>().toList();
 }
@@ -1043,10 +1082,6 @@ FlTitlesData _titlesData(
       ? maxValue.abs() * 0.02 + 1
       : (maxValue - minValue) * factor;
   return (minValue - padding, maxValue + padding);
-}
-
-Color _trendColor(bool isUp) {
-  return isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
 }
 
 String _compactVolume(double value) {

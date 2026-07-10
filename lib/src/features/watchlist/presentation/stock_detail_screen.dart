@@ -33,169 +33,257 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final watchlistState = ref.watch(watchlistControllerProvider);
-    final stock = _latestStock(watchlistState);
-    final trendColor = stock.isUp ? AppPalette.blue600 : AppPalette.slate600;
+    final stock = ref.watch(
+      watchlistControllerProvider.select(_latestStock),
+    );
+    final colors = context.appColors;
+    final trendColor = _stockTrendColor(stock, colors);
     final symbol = currencySymbol(stock);
 
     return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final chartHeight = _chartPanelHeight(constraints.maxHeight);
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 8),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                      child: Row(
-                        children: [
-                          _DetailCircleButton(
-                            tooltip: '返回',
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.arrow_back_rounded),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Text(
-                                  stock.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleLarge
-                                      ?.copyWith(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w900,
-                                        color: AppPalette.text,
-                                        letterSpacing: 0,
-                                      ),
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        formatPrice(
-                                          stock.price,
-                                          type: stock.type,
-                                          symbol: symbol,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .displaySmall
-                                            ?.copyWith(
-                                              color: trendColor,
-                                              fontSize: 31,
-                                              fontWeight: FontWeight.w900,
-                                              letterSpacing: 0,
-                                            ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: trendColor.withValues(
-                                          alpha: 0.10,
-                                        ),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        border: Border.all(
-                                          color: trendColor.withValues(
-                                            alpha: stock.isUp ? 0.16 : 0.12,
-                                          ),
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        child: Text(
-                                          formatSignedPercent(stock.percent),
-                                          style: TextStyle(
-                                            color: trendColor,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 48),
-                        ],
-                      ),
-                    ),
-                    _StatsGrid(stock: stock),
-                    const SizedBox(height: 24),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _ChartTabs(
-                        selected: _chartType,
-                        onSelected: (type) {
-                          setState(() {
-                            _chartType = type;
-                            _chartFuture = _loadChart();
-                          });
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      height: chartHeight,
-                      child: FutureBuilder<ChartData>(
-                        future: _chartFuture,
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState !=
-                              ConnectionState.done) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
-                          if (snapshot.hasError || !snapshot.hasData) {
-                            return _ChartError(
-                              onRetry: () => setState(
-                                () => _chartFuture = _loadChart(),
-                              ),
-                            );
-                          }
-                          return StockChartPanel(
-                            stock: stock,
-                            data: snapshot.data!,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+      backgroundColor: colors.canvas,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              colors.brandSoft.withValues(alpha: 0.46),
+              colors.canvas,
+              colors.canvas,
+            ],
+            stops: const [0, 0.36, 1],
+          ),
+        ),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop =
+                  constraints.maxWidth >= AppBreakpoints.desktop &&
+                      constraints.maxHeight >= 520;
+              return isDesktop
+                  ? _buildDesktopLayout(
+                      context,
+                      stock,
+                      symbol,
+                      trendColor,
+                      constraints,
+                    )
+                  : _buildCompactLayout(
+                      context,
+                      stock,
+                      symbol,
+                      trendColor,
+                      constraints,
+                    );
+            },
+          ),
         ),
       ),
     );
   }
 
+  Widget _buildCompactLayout(
+    BuildContext context,
+    Stock stock,
+    String symbol,
+    Color trendColor,
+    BoxConstraints constraints,
+  ) {
+    final chartHeight = _chartPanelHeight(constraints.maxHeight);
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DetailHeader(
+              stock: stock,
+              symbol: symbol,
+              trendColor: trendColor,
+              onBack: () => Navigator.of(context).pop(),
+            ),
+            _StatsGrid(stock: stock),
+            const SizedBox(height: AppSpacing.lg),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: SizedBox(
+                height: chartHeight,
+                child: _buildChartCard(context, stock),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(
+    BuildContext context,
+    Stock stock,
+    String symbol,
+    Color trendColor,
+    BoxConstraints constraints,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xxl),
+      child: Column(
+        children: [
+          _DetailHeader(
+            stock: stock,
+            symbol: symbol,
+            trendColor: trendColor,
+            onBack: () => Navigator.of(context).pop(),
+            isDesktop: true,
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: constraints.maxWidth.clamp(280, 340).toDouble(),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        _StatsGrid(
+                          stock: stock,
+                          horizontalPadding: 0,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        _SessionRangeCard(stock: stock, symbol: symbol),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.xl),
+                Expanded(child: _buildChartCard(context, stock)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartCard(BuildContext context, Stock stock) {
+    final colors = context.appColors;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised,
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        border: Border.all(color: colors.borderSubtle),
+        boxShadow: AppShadows.card(),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.lg,
+                AppSpacing.lg,
+                AppSpacing.md,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final title = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '行情走势',
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                      ),
+                      const SizedBox(height: AppSpacing.xxs),
+                      Text(
+                        _chartType == ChartType.intraday
+                            ? '实时价格与均价走势'
+                            : '拖拽平移 · 滚轮缩放 · 双击复位',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colors.textTertiary,
+                            ),
+                      ),
+                    ],
+                  );
+                  final tabs = _ChartTabs(
+                    selected: _chartType,
+                    onSelected: _selectChartType,
+                  );
+                  if (constraints.maxWidth < 620) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        title,
+                        const SizedBox(height: AppSpacing.md),
+                        tabs,
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: title),
+                      const SizedBox(width: AppSpacing.md),
+                      tabs,
+                    ],
+                  );
+                },
+              ),
+            ),
+            Divider(height: 1, color: colors.borderSubtle),
+            Expanded(
+              child: FutureBuilder<ChartData>(
+                future: _chartFuture,
+                builder: (context, snapshot) {
+                  final child = switch (snapshot.connectionState) {
+                    ConnectionState.done
+                        when snapshot.hasData && !snapshot.hasError =>
+                      StockChartPanel(
+                        key: ValueKey(_chartType),
+                        stock: stock,
+                        data: snapshot.data!,
+                        onRetry: _retryChart,
+                      ),
+                    ConnectionState.done => _ChartError(onRetry: _retryChart),
+                    _ => const _ChartLoading(),
+                  };
+                  return AnimatedSwitcher(
+                    duration: AppDurations.standard,
+                    switchInCurve: AppMotionCurves.standard,
+                    child: child,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _selectChartType(ChartType type) {
+    if (type == _chartType) return;
+    setState(() {
+      _chartType = type;
+      _chartFuture = _loadChart();
+    });
+  }
+
+  void _retryChart() {
+    setState(() => _chartFuture = _loadChart());
+  }
+
   double _chartPanelHeight(double viewportHeight) {
-    final minHeight = _chartType == ChartType.intraday ? 350.0 : 390.0;
-    final targetHeight = _chartType == ChartType.intraday ? 382.0 : 430.0;
-    return (viewportHeight - 330).clamp(minHeight, targetHeight).toDouble();
+    final minHeight = _chartType == ChartType.intraday ? 390.0 : 430.0;
+    final targetHeight = _chartType == ChartType.intraday ? 440.0 : 490.0;
+    return (viewportHeight - 300).clamp(minHeight, targetHeight).toDouble();
   }
 
   Future<ChartData> _loadChart() {
@@ -216,6 +304,221 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   }
 }
 
+class _DetailHeader extends StatelessWidget {
+  const _DetailHeader({
+    required this.stock,
+    required this.symbol,
+    required this.trendColor,
+    required this.onBack,
+    this.isDesktop = false,
+  });
+
+  final Stock stock;
+  final String symbol;
+  final Color trendColor;
+  final VoidCallback onBack;
+  final bool isDesktop;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final price = formatPrice(stock.price, type: stock.type, symbol: symbol);
+    final identity = Column(
+      crossAxisAlignment:
+          isDesktop ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          stock.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+              ),
+        ),
+        const SizedBox(height: AppSpacing.xxs),
+        Text(
+          '${stock.code}  ·  ${marketDisplayName(stock)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: colors.textTertiary,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
+    final quote = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            price,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.displaySmall?.copyWith(
+              color: trendColor,
+              fontSize: isDesktop ? 36 : 30,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.8,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        _TrendChip(stock: stock, color: trendColor),
+      ],
+    );
+
+    if (isDesktop) {
+      return Row(
+        children: [
+          _DetailCircleButton(
+            tooltip: '返回自选',
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: colors.brandSoft,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: Icon(Icons.candlestick_chart_rounded, color: colors.brand),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: identity),
+          const SizedBox(width: AppSpacing.xl),
+          quote,
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.md,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _DetailCircleButton(
+                tooltip: '返回自选',
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(child: identity),
+              const SizedBox(width: AppControlSizes.regular),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          quote,
+        ],
+      ),
+    );
+  }
+}
+
+class _TrendChip extends StatelessWidget {
+  const _TrendChip({required this.stock, required this.color});
+
+  final Stock stock;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.11),
+        borderRadius: BorderRadius.circular(AppRadii.full),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              stock.percent == null || stock.percent == 0
+                  ? Icons.trending_flat_rounded
+                  : stock.percent! > 0
+                      ? Icons.trending_up_rounded
+                      : Icons.trending_down_rounded,
+              size: 15,
+              color: color,
+            ),
+            const SizedBox(width: AppSpacing.xxs),
+            Text(
+              formatSignedPercent(stock.percent),
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChartLoading extends StatelessWidget {
+  const _ChartLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.full),
+            child: LinearProgressIndicator(
+              minHeight: 3,
+              backgroundColor: colors.surfaceInteractive,
+              color: colors.brand,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          Expanded(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.surfaceInteractive.withValues(alpha: 0.58),
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                border: Border.all(color: colors.borderSubtle),
+              ),
+              child: Center(
+                child: Text(
+                  '正在加载行情走势…',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.textTertiary,
+                      ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailCircleButton extends StatelessWidget {
   const _DetailCircleButton({
     required this.tooltip,
@@ -229,13 +532,14 @@ class _DetailCircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Tooltip(
       message: tooltip,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.86),
+          color: colors.surfaceGlass,
           shape: BoxShape.circle,
-          border: Border.all(color: AppPalette.slate200),
+          border: Border.all(color: colors.border),
           boxShadow: AppShadows.control(),
         ),
         child: Material(
@@ -245,10 +549,10 @@ class _DetailCircleButton extends StatelessWidget {
             customBorder: const CircleBorder(),
             onTap: onPressed,
             child: SizedBox.square(
-              dimension: 40,
+              dimension: AppControlSizes.regular,
               child: IconTheme(
-                data: const IconThemeData(
-                  color: AppPalette.slate500,
+                data: IconThemeData(
+                  color: colors.textSecondary,
                   size: 21,
                 ),
                 child: icon,
@@ -262,12 +566,17 @@ class _DetailCircleButton extends StatelessWidget {
 }
 
 class _StatsGrid extends StatelessWidget {
-  const _StatsGrid({required this.stock});
+  const _StatsGrid({
+    required this.stock,
+    this.horizontalPadding = AppSpacing.lg,
+  });
 
   final Stock stock;
+  final double horizontalPadding;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final symbol = currencySymbol(stock);
     final amplitude = stock.high != null &&
             stock.low != null &&
@@ -287,55 +596,106 @@ class _StatsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
           child: InkWell(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(AppRadii.xl),
             onTap: () => _showAllMetrics(context, stock, symbol, amplitude),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.86),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+                color: colors.surfaceRaised,
+                borderRadius: BorderRadius.circular(AppRadii.xl),
+                border: Border.all(color: colors.borderSubtle),
                 boxShadow: AppShadows.card(),
               ),
-              padding: const EdgeInsets.all(20),
-              child: GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: items.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  childAspectRatio: 2.35,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 10,
-                ),
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        item.$1,
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: AppPalette.slate400,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0,
-                            ),
+                      Expanded(
+                        child: Text(
+                          '行情概览',
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: colors.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
                       ),
-                      const SizedBox(height: 5),
                       Text(
-                        item.$2,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AppPalette.slate800,
-                              fontWeight: FontWeight.w900,
-                            ),
+                        '查看全部',
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: colors.brand,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                      ),
+                      const SizedBox(width: AppSpacing.xxs),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 16,
+                        color: colors.brand,
                       ),
                     ],
-                  );
-                },
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: items.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 1.34,
+                      crossAxisSpacing: AppSpacing.xs,
+                      mainAxisSpacing: AppSpacing.xs,
+                    ),
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      return DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colors.surfaceInteractive,
+                          borderRadius: BorderRadius.circular(AppRadii.md),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpacing.xs),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                item.$1,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      color: colors.textTertiary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                              const SizedBox(height: AppSpacing.xxs),
+                              Text(
+                                item.$2,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
           ),
@@ -358,6 +718,129 @@ class _StatsGrid extends StatelessWidget {
         stock: stock,
         symbol: symbol,
         amplitude: amplitude,
+      ),
+    );
+  }
+}
+
+class _SessionRangeCard extends StatelessWidget {
+  const _SessionRangeCard({required this.stock, required this.symbol});
+
+  final Stock stock;
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final low = stock.low;
+    final high = stock.high;
+    final price = stock.price;
+    final hasRange = low != null &&
+        high != null &&
+        price != null &&
+        high > low &&
+        price.isFinite;
+    final progress = hasRange
+        ? ((price - low) / (high - low)).clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final trend = _stockTrendColor(stock, colors);
+    final rows = [
+      (
+        '涨跌额',
+        formatPrice(stock.change, type: stock.type, symbol: symbol),
+      ),
+      (
+        '成交额',
+        '$symbol${formatAmount(stock.amount, type: stock.type)}',
+      ),
+      (
+        '换手率',
+        stock.turnoverRate == null
+            ? '--'
+            : '${stock.turnoverRate!.toStringAsFixed(2)}%',
+      ),
+    ];
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised,
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        border: Border.all(color: colors.borderSubtle),
+        boxShadow: AppShadows.card(),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '今日区间',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.full),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 7,
+                color: trend,
+                backgroundColor: colors.surfaceInteractive,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '最低 ${formatPrice(low, type: stock.type, symbol: symbol)}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colors.textTertiary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                  ),
+                ),
+                Text(
+                  '最高 ${formatPrice(high, type: stock.type, symbol: symbol)}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colors.textTertiary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Divider(height: 1, color: colors.borderSubtle),
+            for (final row in rows)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.sm),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        row.$1,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colors.textTertiary,
+                            ),
+                      ),
+                    ),
+                    Text(
+                      row.$2,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures(),
+                            ],
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -392,8 +875,8 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
     final stock = widget.stock;
     final symbol = widget.symbol;
     final amplitude = widget.amplitude;
-    final trendColor =
-        stock.isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
+    final colors = context.appColors;
+    final trendColor = _stockTrendColor(stock, colors);
     final sections = [
       _MetricSectionData(
         title: '价格区间',
@@ -405,17 +888,17 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
           _MetricItem(
             '今开',
             formatPrice(stock.open, type: stock.type, symbol: symbol),
-            tone: _priceTone(stock.open, stock.preClose),
+            tone: _priceTone(stock.open, stock.preClose, colors),
           ),
           _MetricItem(
             '最高',
             formatPrice(stock.high, type: stock.type, symbol: symbol),
-            tone: _priceTone(stock.high, stock.preClose),
+            tone: _priceTone(stock.high, stock.preClose, colors),
           ),
           _MetricItem(
             '最低',
             formatPrice(stock.low, type: stock.type, symbol: symbol),
-            tone: _priceTone(stock.low, stock.preClose),
+            tone: _priceTone(stock.low, stock.preClose, colors),
           ),
           _MetricItem(
             '涨跌额',
@@ -423,8 +906,8 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
             tone: stock.change == null
                 ? null
                 : stock.change! >= 0
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFF475569),
+                    ? colors.gain
+                    : colors.loss,
           ),
           _MetricItem('振幅', amplitude),
         ],
@@ -449,8 +932,8 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
             tone: stock.volumeRatio == null
                 ? null
                 : stock.volumeRatio! >= 1
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFF475569),
+                    ? colors.gain
+                    : colors.loss,
           ),
         ],
       ),
@@ -495,8 +978,8 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
                           overflow: TextOverflow.ellipsis,
                           style:
                               Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    color: const Color(0xFF0F172A),
+                                    fontWeight: FontWeight.w800,
+                                    color: colors.textPrimary,
                                   ),
                         ),
                         const SizedBox(height: 5),
@@ -504,8 +987,8 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
                           '${stock.code} · ${marketDisplayName(stock)}',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: const Color(0xFF64748B),
-                                    fontWeight: FontWeight.w800,
+                                    color: colors.textTertiary,
+                                    fontWeight: FontWeight.w600,
                                   ),
                         ),
                       ],
@@ -523,7 +1006,7 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
                         ),
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: trendColor,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           fontFeatures: const [
                             FontFeature.tabularFigures(),
                           ],
@@ -545,7 +1028,7 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
                             style: TextStyle(
                               color: trendColor,
                               fontSize: 12,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
@@ -579,7 +1062,7 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
               Text(
                 '实时行情数据仅供参考，请以交易所实际数据为准。',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: const Color(0xFF94A3B8),
+                      color: colors.textTertiary,
                       fontWeight: FontWeight.w700,
                     ),
               ),
@@ -590,10 +1073,10 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
     );
   }
 
-  Color? _priceTone(double? value, double? baseline) {
+  Color? _priceTone(double? value, double? baseline, AppColors colors) {
     if (value == null || baseline == null) return null;
-    if (value > baseline) return const Color(0xFF2563EB);
-    if (value < baseline) return const Color(0xFF475569);
+    if (value > baseline) return colors.gain;
+    if (value < baseline) return colors.loss;
     return null;
   }
 
@@ -619,6 +1102,7 @@ class _DepthBookSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final title = depth.isFullDepth ? '五档盘口' : '最佳报价';
     final hasOrderMetrics = depth.orderRatio != null || depth.orderDiff != null;
     return Column(
@@ -629,8 +1113,8 @@ class _DepthBookSection extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppPalette.slate700,
-                    fontWeight: FontWeight.w900,
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(width: 8),
@@ -644,9 +1128,9 @@ class _DepthBookSection extends StatelessWidget {
         const SizedBox(height: 9),
         DecoratedBox(
           decoration: BoxDecoration(
-            color: AppPalette.slate100.withValues(alpha: 0.64),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppPalette.slate200),
+            color: colors.surfaceInteractive,
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            border: Border.all(color: colors.borderSubtle),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
@@ -661,7 +1145,7 @@ class _DepthBookSection extends StatelessWidget {
                         label: '买盘',
                         prefix: '买',
                         levels: depth.bids,
-                        tone: AppPalette.blue600,
+                        tone: colors.gain,
                         stock: stock,
                         symbol: symbol,
                       ),
@@ -672,7 +1156,7 @@ class _DepthBookSection extends StatelessWidget {
                         label: '卖盘',
                         prefix: '卖',
                         levels: depth.asks,
-                        tone: AppPalette.slate600,
+                        tone: colors.loss,
                         stock: stock,
                         symbol: symbol,
                       ),
@@ -689,7 +1173,7 @@ class _DepthBookSection extends StatelessWidget {
                         _DepthStatChip(
                           label: '委比',
                           value: _formatOrderRatio(depth.orderRatio),
-                          tone: _depthMetricTone(depth.orderRatio),
+                          tone: _depthMetricTone(depth.orderRatio, colors),
                         ),
                       if (depth.orderDiff != null)
                         _DepthStatChip(
@@ -698,7 +1182,7 @@ class _DepthBookSection extends StatelessWidget {
                             depth.orderDiff,
                             stock.type,
                           ),
-                          tone: _depthMetricTone(depth.orderDiff),
+                          tone: _depthMetricTone(depth.orderDiff, colors),
                         ),
                     ],
                   ),
@@ -778,6 +1262,7 @@ class _DepthRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Row(
       children: [
         SizedBox(
@@ -785,8 +1270,8 @@ class _DepthRow extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AppPalette.slate400,
-                  fontWeight: FontWeight.w900,
+                  color: colors.textTertiary,
+                  fontWeight: FontWeight.w700,
                 ),
           ),
         ),
@@ -815,8 +1300,8 @@ class _DepthRow extends StatelessWidget {
               _formatDepthVolume(level.volume, stock.type),
               maxLines: 1,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: AppPalette.slate500,
-                fontWeight: FontWeight.w800,
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -832,11 +1317,12 @@ class _DepthEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Text(
       '--',
       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppPalette.slate400,
-            fontWeight: FontWeight.w900,
+            color: colors.textTertiary,
+            fontWeight: FontWeight.w700,
           ),
     );
   }
@@ -855,10 +1341,11 @@ class _DepthStatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(999),
+        color: colors.surfaceGlass,
+        borderRadius: BorderRadius.circular(AppRadii.full),
         border: Border.all(color: tone.withValues(alpha: 0.14)),
       ),
       child: Padding(
@@ -869,8 +1356,8 @@ class _DepthStatChip extends StatelessWidget {
             Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppPalette.slate400,
-                    fontWeight: FontWeight.w900,
+                    color: colors.textTertiary,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(width: 5),
@@ -912,9 +1399,15 @@ String _formatSignedDepthVolume(double? volume, StockType type) {
   return '$sign${_formatDepthVolume(volume, type)}';
 }
 
-Color _depthMetricTone(double? value) {
-  if (value == null || value < 0) return AppPalette.slate600;
-  return AppPalette.blue600;
+Color _depthMetricTone(double? value, AppColors colors) {
+  if (value == null || value < 0) return colors.loss;
+  return colors.gain;
+}
+
+Color _stockTrendColor(Stock stock, AppColors colors) {
+  final percent = stock.percent;
+  if (percent == null || percent == 0) return colors.flat;
+  return percent > 0 ? colors.gain : colors.loss;
 }
 
 class _MetricSectionData {
@@ -946,14 +1439,15 @@ class _MetricSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           section.title,
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: const Color(0xFF334155),
-                fontWeight: FontWeight.w900,
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w700,
               ),
         ),
         const SizedBox(height: 9),
@@ -963,7 +1457,7 @@ class _MetricSection extends StatelessWidget {
           itemCount: section.items.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            childAspectRatio: 1.56,
+            childAspectRatio: 1.34,
             crossAxisSpacing: 9,
             mainAxisSpacing: 9,
           ),
@@ -971,9 +1465,9 @@ class _MetricSection extends StatelessWidget {
             final item = section.items[index];
             return DecoratedBox(
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                color: colors.surfaceInteractive,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: colors.borderSubtle),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(10),
@@ -985,8 +1479,8 @@ class _MetricSection extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF94A3B8),
-                            fontWeight: FontWeight.w900,
+                            color: colors.textTertiary,
+                            fontWeight: FontWeight.w600,
                           ),
                     ),
                     const SizedBox(height: 5),
@@ -1002,8 +1496,8 @@ class _MetricSection extends StatelessWidget {
                                 .textTheme
                                 .bodyMedium
                                 ?.copyWith(
-                              color: item.tone ?? const Color(0xFF0F172A),
-                              fontWeight: FontWeight.w900,
+                              color: item.tone ?? colors.textPrimary,
+                              fontWeight: FontWeight.w700,
                               fontFeatures: const [
                                 FontFeature.tabularFigures(),
                               ],
@@ -1043,7 +1537,8 @@ class _ChartTabs extends StatelessWidget {
             selected: selected == type,
             onPressed: () => onSelected(type),
           ),
-          if (type != ChartType.values.last) const SizedBox(width: 8),
+          if (type != ChartType.values.last)
+            const SizedBox(width: AppSpacing.xxs),
         ],
       ],
     );
@@ -1063,41 +1558,45 @@ class _ChartTabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: selected
-            ? const LinearGradient(
+            ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [AppPalette.slate700, AppPalette.slate800],
+                colors: [colors.brand, colors.brandHover],
               )
             : null,
-        color: selected ? null : Colors.white,
-        borderRadius: BorderRadius.circular(999),
+        color: selected ? null : colors.surfaceInteractive,
+        borderRadius: BorderRadius.circular(AppRadii.full),
         border: Border.all(
-          color: selected ? Colors.transparent : AppPalette.slate100,
+          color: selected ? Colors.transparent : colors.borderSubtle,
         ),
         boxShadow: AppShadows.pill(
           selected: selected,
-          selectedColor: AppPalette.slate800,
+          selectedColor: colors.brand,
         ),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(AppRadii.full),
           onTap: onPressed,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 58),
+            constraints: const BoxConstraints(minWidth: 52),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
               child: Text(
                 label,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: selected ? Colors.white : AppPalette.slate500,
+                  color: selected ? colors.onBrand : colors.textSecondary,
                   fontSize: 12,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -1115,14 +1614,17 @@ class _ChartError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = context.appColors;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.error_outline_rounded, color: scheme.onSurfaceVariant),
+          Icon(Icons.cloud_off_rounded, color: colors.textTertiary),
           const SizedBox(height: 8),
-          Text('图表加载失败', style: TextStyle(color: scheme.onSurfaceVariant)),
+          Text(
+            '图表加载失败',
+            style: TextStyle(color: colors.textSecondary),
+          ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: onRetry,
