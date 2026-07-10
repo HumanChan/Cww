@@ -60,6 +60,7 @@ String marketDisplayName(Stock stock) {
     case Market.jp:
       return '日股';
     case Market.cn:
+      if (stock.code.startsWith('688')) return '科创';
       if (stock.code.startsWith('6')) return '沪市';
       if (stock.code.startsWith('0') || stock.code.startsWith('3')) return '深市';
       return 'A股';

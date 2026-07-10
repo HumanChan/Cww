@@ -220,7 +220,7 @@ class _GroupTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 44,
+      height: 40,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -234,26 +234,32 @@ class _GroupTabs extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-          Container(
-            margin: const EdgeInsets.only(left: 2),
-            padding: const EdgeInsets.only(left: 12, right: 2),
-            decoration: const BoxDecoration(
-              border: Border(left: BorderSide(color: AppPalette.slate200)),
-            ),
-            child: Row(
-              children: [
-                _SmallToolButton(
-                  tooltip: '新增分组',
-                  onPressed: onAdd,
-                  icon: Icons.add_rounded,
+          Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              height: 34,
+              child: Container(
+                margin: const EdgeInsets.only(left: 2),
+                padding: const EdgeInsets.only(left: 12, right: 2),
+                decoration: const BoxDecoration(
+                  border: Border(left: BorderSide(color: AppPalette.slate200)),
                 ),
-                const SizedBox(width: 8),
-                _SmallToolButton(
-                  tooltip: '管理分组',
-                  onPressed: onManage,
-                  icon: Icons.tune_rounded,
+                child: Row(
+                  children: [
+                    _SmallToolButton(
+                      tooltip: '新增分组',
+                      onPressed: onAdd,
+                      icon: Icons.add_rounded,
+                    ),
+                    const SizedBox(width: 8),
+                    _SmallToolButton(
+                      tooltip: '管理分组',
+                      onPressed: onManage,
+                      icon: Icons.tune_rounded,
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -320,40 +326,54 @@ class _PillButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: selected
-            ? const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppPalette.blue500, AppPalette.blue600],
-              )
-            : null,
-        color: selected ? null : Colors.white,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: selected ? Colors.transparent : AppPalette.slate100,
-        ),
-        boxShadow: AppShadows.pill(selected: selected),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
+    return Align(
+      alignment: Alignment.topCenter,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: selected
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppPalette.blue500, AppPalette.blue600],
+                )
+              : null,
+          color: selected ? null : Colors.white,
           borderRadius: BorderRadius.circular(999),
-          onTap: onPressed,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 58),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: selected ? Colors.white : AppPalette.slate500,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
+          border: Border.all(
+            color: selected ? Colors.transparent : AppPalette.slate100,
+          ),
+          boxShadow: AppShadows.pill(selected: selected),
+        ),
+        child: SizedBox(
+          height: 34,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: onPressed,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 58),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Center(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      strutStyle: const StrutStyle(
+                        fontSize: 12,
+                        height: 1,
+                        forceStrutHeight: true,
+                      ),
+                      style: TextStyle(
+                        color: selected ? Colors.white : AppPalette.slate500,
+                        fontSize: 12,
+                        height: 1,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

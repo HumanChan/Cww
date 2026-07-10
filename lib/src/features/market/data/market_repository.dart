@@ -52,21 +52,50 @@ class MarketRepository {
           id: 'gd',
           name: 'GD',
           stocks: [
-            Stock(code: '000001', name: '上证指数', secid: '1.000001'),
             Stock(
-              code: 'BTCUSDT',
-              name: 'Bitcoin',
-              secid: 'BTCUSDT',
-              type: StockType.crypto,
-              market: Market.other,
+              code: '603986',
+              name: '兆易创新',
+              secid: '1.603986',
+              price: 663.49,
+              percent: 10,
+              preClose: 603.17,
+              open: 633,
+              high: 663.49,
+              low: 630,
+              amount: 37654000000,
             ),
-            Stock(code: '300059', name: '东方财富', secid: '0.300059'),
-            Stock(code: '600519', name: '贵州茅台', secid: '1.600519'),
             Stock(
-              code: '00700',
-              name: '腾讯控股',
-              secid: '116.00700',
+              code: '03986',
+              name: '兆易创新',
+              secid: '116.03986',
               market: Market.hk,
+              price: 940.50,
+              percent: 21.75,
+              amount: 4576000000,
+            ),
+            Stock(
+              code: '688766',
+              name: '普冉股份',
+              secid: '1.688766',
+              price: 762.07,
+              percent: 9.81,
+              amount: 8557000000,
+            ),
+            Stock(
+              code: '001309',
+              name: '德明利',
+              secid: '0.001309',
+              price: 860.48,
+              percent: -2.34,
+              amount: 1234000000,
+            ),
+            Stock(
+              code: '688981',
+              name: '中芯国际',
+              secid: '1.688981',
+              price: 45.67,
+              percent: 5.43,
+              amount: 21000000000,
             ),
           ],
         ),
@@ -186,11 +215,23 @@ class MarketRepository {
   }
 
   bool _isLegacyDefaultSeed(List<StockGroup> groups) {
-    if (groups.length != 1) return false;
-    final group = groups.single;
-    if (group.id != 'default' || group.stocks.length > 3) return false;
-    const legacyCodes = {'000001', 'BTCUSDT', '300059'};
-    final codes = group.stocks.map((stock) => stock.code).toSet();
+    if (groups.length == 1) {
+      final group = groups.single;
+      return group.id == 'default' && _isLegacyGeneralSeed(group.stocks);
+    }
+
+    const seededIds = ['gd', 'chip', 'hk', 'us', 'kr', 'tw'];
+    if (groups.length != seededIds.length) return false;
+    for (var i = 0; i < seededIds.length; i++) {
+      if (groups[i].id != seededIds[i]) return false;
+    }
+    return _isLegacyGeneralSeed(groups.first.stocks);
+  }
+
+  bool _isLegacyGeneralSeed(List<Stock> stocks) {
+    if (stocks.length > 5) return false;
+    const legacyCodes = {'000001', 'BTCUSDT', '300059', '600519', '00700'};
+    final codes = stocks.map((stock) => stock.code).toSet();
     return codes.isNotEmpty && codes.every(legacyCodes.contains);
   }
 

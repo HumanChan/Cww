@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../market/domain/chart_models.dart';
 import '../../market/domain/stock.dart';
 
@@ -19,8 +20,12 @@ class StockChartPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final previewIntraday =
+        data.type == ChartType.intraday && data.intraday.isEmpty;
+    final intradayPoints =
+        previewIntraday ? _previewIntradayPoints(stock) : data.intraday;
     final hasData = data.type == ChartType.intraday
-        ? data.intraday.isNotEmpty
+        ? intradayPoints.isNotEmpty
         : data.kLine.isNotEmpty;
     if (!hasData) {
       return Center(
@@ -35,10 +40,90 @@ class StockChartPanel extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
       child: data.type == ChartType.intraday
-          ? _IntradayLineChart(stock: stock, points: data.intraday)
+          ? Stack(
+              children: [
+                _IntradayLineChart(stock: stock, points: intradayPoints),
+                if (previewIntraday) const _PreviewBadge(),
+              ],
+            )
           : _KLineCandlestickChart(points: data.kLine),
     );
   }
+}
+
+class _PreviewBadge extends StatelessWidget {
+  const _PreviewBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 2,
+      right: 16,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.82),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppPalette.slate200),
+        ),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Text(
+            '预览走势',
+            style: TextStyle(
+              color: AppPalette.slate400,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+List<ChartPoint> _previewIntradayPoints(Stock stock) {
+  final baseline = stock.preClose ?? stock.open ?? stock.price ?? 100;
+  if (baseline <= 0) return const [];
+  final target = stock.price ?? baseline * (stock.isUp ? 1.018 : 0.982);
+  final direction = target >= baseline ? 1.0 : -1.0;
+  final trough = baseline * (1 - direction * 0.024);
+  final points = <ChartPoint>[];
+  var avg = baseline;
+
+  for (var i = 0; i < 60; i++) {
+    final t = i / 59;
+    late final double price;
+    if (t < 0.36) {
+      final local = t / 0.36;
+      price =
+          _lerp(baseline, trough, local) + math.sin(i * 1.7) * baseline * 0.004;
+    } else if (t < 0.66) {
+      final local = (t - 0.36) / 0.30;
+      price = _lerp(trough, target, Curves.easeOutCubic.transform(local)) +
+          math.sin(i * 1.1) * baseline * 0.003;
+    } else {
+      final local = (t - 0.66) / 0.34;
+      price = _lerp(target * (1 - direction * 0.004), target, local);
+    }
+    avg = avg + (price - avg) * 0.075;
+    points.add(
+      ChartPoint(
+        time: i == 0
+            ? '09:30'
+            : i == 59
+                ? '15:00'
+                : '',
+        price: price,
+        avg: avg,
+        volume: 800000 + math.sin(i * 0.9).abs() * 2800000,
+      ),
+    );
+  }
+  return points;
+}
+
+double _lerp(double start, double end, double t) {
+  return start + (end - start) * t.clamp(0, 1);
 }
 
 class _IntradayLineChart extends StatelessWidget {
@@ -79,7 +164,11 @@ class _IntradayLineChart extends StatelessWidget {
         clipData: const FlClipData.all(),
         gridData: _gridData(scheme),
         borderData: FlBorderData(show: false),
-        titlesData: _titlesData(scheme),
+        titlesData: _titlesData(
+          scheme,
+          bottomStartLabel: points.first.time,
+          bottomEndLabel: points.last.time,
+        ),
         extraLinesData: stock.preClose == null
             ? const ExtraLinesData()
             : ExtraLinesData(
@@ -750,27 +839,54 @@ FlGridData _gridData(ColorScheme scheme) {
   );
 }
 
-FlTitlesData _titlesData(ColorScheme scheme) {
+FlTitlesData _titlesData(
+  ColorScheme scheme, {
+  String? bottomStartLabel,
+  String? bottomEndLabel,
+}) {
+  final axisTextStyle = TextStyle(
+    color: scheme.onSurfaceVariant.withValues(alpha: 0.82),
+    fontSize: 10,
+    fontWeight: FontWeight.w700,
+  );
+
   return FlTitlesData(
-    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-    rightTitles: AxisTitles(
+    leftTitles: AxisTitles(
       sideTitles: SideTitles(
         showTitles: true,
         reservedSize: 44,
         maxIncluded: false,
         minIncluded: false,
-        getTitlesWidget: (value, meta) => Text(
-          value.toStringAsFixed(2),
-          style: TextStyle(
-            color: scheme.onSurfaceVariant,
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        getTitlesWidget: (value, meta) {
+          return Text(value.toStringAsFixed(2), style: axisTextStyle);
+        },
       ),
     ),
-    bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+    rightTitles: const AxisTitles(
+      sideTitles: SideTitles(showTitles: false),
+    ),
+    bottomTitles: AxisTitles(
+      sideTitles: SideTitles(
+        showTitles: bottomStartLabel != null || bottomEndLabel != null,
+        reservedSize: 20,
+        interval: 1,
+        getTitlesWidget: (value, meta) {
+          final isStart = (value - meta.min).abs() < 0.01;
+          final isEnd = (value - meta.max).abs() < 0.01;
+          final label = isStart
+              ? bottomStartLabel
+              : isEnd
+                  ? bottomEndLabel
+                  : null;
+          if (label == null || label.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: Text(label, style: axisTextStyle),
+          );
+        },
+      ),
+    ),
   );
 }
 
