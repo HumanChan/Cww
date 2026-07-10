@@ -335,7 +335,7 @@ class _StatsGrid extends StatelessWidget {
   }
 }
 
-class _MetricsSheet extends StatelessWidget {
+class _MetricsSheet extends ConsumerStatefulWidget {
   const _MetricsSheet({
     required this.stock,
     required this.symbol,
@@ -347,7 +347,23 @@ class _MetricsSheet extends StatelessWidget {
   final String amplitude;
 
   @override
+  ConsumerState<_MetricsSheet> createState() => _MetricsSheetState();
+}
+
+class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
+  late Future<MarketDepth> _depthFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _depthFuture = _loadDepth();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final stock = widget.stock;
+    final symbol = widget.symbol;
+    final amplitude = widget.amplitude;
     final trendColor =
         stock.isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
     final sections = [
@@ -511,6 +527,22 @@ class _MetricsSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 18),
+              FutureBuilder<MarketDepth>(
+                future: _depthFuture,
+                initialData: stock.hasMarketDepth ? stock.marketDepth : null,
+                builder: (context, snapshot) {
+                  final depth = snapshot.data ?? const MarketDepth();
+                  return _DepthBookSection(
+                    depth: depth,
+                    stock: stock,
+                    symbol: symbol,
+                    isLoading:
+                        snapshot.connectionState != ConnectionState.done &&
+                            !depth.hasData,
+                  );
+                },
+              ),
+              const SizedBox(height: 14),
               for (final section in sections) ...[
                 _MetricSection(section: section),
                 if (section != sections.last) const SizedBox(height: 14),
@@ -536,6 +568,231 @@ class _MetricsSheet extends StatelessWidget {
     if (value < baseline) return const Color(0xFF475569);
     return null;
   }
+
+  Future<MarketDepth> _loadDepth() async {
+    final depth =
+        await ref.read(marketRepositoryProvider).fetchMarketDepth(widget.stock);
+    return depth.hasData ? depth : widget.stock.marketDepth;
+  }
+}
+
+class _DepthBookSection extends StatelessWidget {
+  const _DepthBookSection({
+    required this.depth,
+    required this.stock,
+    required this.symbol,
+    required this.isLoading,
+  });
+
+  final MarketDepth depth;
+  final Stock stock;
+  final String symbol;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = depth.isFullDepth ? '五档盘口' : '最佳报价';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: AppPalette.slate700,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(width: 8),
+            if (isLoading)
+              const SizedBox.square(
+                dimension: 12,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppPalette.slate100.withValues(alpha: 0.64),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppPalette.slate200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _DepthSideColumn(
+                    label: '买盘',
+                    prefix: '买',
+                    levels: depth.bids,
+                    tone: AppPalette.blue600,
+                    stock: stock,
+                    symbol: symbol,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _DepthSideColumn(
+                    label: '卖盘',
+                    prefix: '卖',
+                    levels: depth.asks,
+                    tone: AppPalette.slate600,
+                    stock: stock,
+                    symbol: symbol,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DepthSideColumn extends StatelessWidget {
+  const _DepthSideColumn({
+    required this.label,
+    required this.prefix,
+    required this.levels,
+    required this.tone,
+    required this.stock,
+    required this.symbol,
+  });
+
+  final String label;
+  final String prefix;
+  final List<MarketDepthLevel> levels;
+  final Color tone;
+  final Stock stock;
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = levels.take(5).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: tone,
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        const SizedBox(height: 8),
+        if (visible.isEmpty)
+          const _DepthEmpty()
+        else
+          for (var i = 0; i < visible.length; i++) ...[
+            _DepthRow(
+              label: '$prefix${i + 1}',
+              level: visible[i],
+              tone: tone,
+              stock: stock,
+              symbol: symbol,
+            ),
+            if (i != visible.length - 1) const SizedBox(height: 7),
+          ],
+      ],
+    );
+  }
+}
+
+class _DepthRow extends StatelessWidget {
+  const _DepthRow({
+    required this.label,
+    required this.level,
+    required this.tone,
+    required this.stock,
+    required this.symbol,
+  });
+
+  final String label;
+  final MarketDepthLevel level;
+  final Color tone;
+  final Stock stock;
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 28,
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: AppPalette.slate400,
+                  fontWeight: FontWeight.w900,
+                ),
+          ),
+        ),
+        Expanded(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatPrice(level.price, type: stock.type, symbol: symbol),
+              maxLines: 1,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tone,
+                fontWeight: FontWeight.w900,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 44,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text(
+              _formatDepthVolume(level.volume, stock.type),
+              maxLines: 1,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: AppPalette.slate500,
+                fontWeight: FontWeight.w800,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DepthEmpty extends StatelessWidget {
+  const _DepthEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '--',
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: AppPalette.slate400,
+            fontWeight: FontWeight.w900,
+          ),
+    );
+  }
+}
+
+String _formatDepthVolume(double? volume, StockType type) {
+  if (volume == null || volume.isNaN) return '--';
+  if (type == StockType.crypto) {
+    if (volume < 1) return volume.toStringAsFixed(4);
+    if (volume < 10) return volume.toStringAsFixed(3);
+    if (volume < 100) return volume.toStringAsFixed(2);
+    return formatAmount(volume, type: StockType.crypto);
+  }
+  return formatVolume(volume);
 }
 
 class _MetricSectionData {
@@ -584,7 +841,7 @@ class _MetricSection extends StatelessWidget {
           itemCount: section.items.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            childAspectRatio: 1.72,
+            childAspectRatio: 1.56,
             crossAxisSpacing: 9,
             mainAxisSpacing: 9,
           ),

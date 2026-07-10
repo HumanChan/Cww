@@ -36,6 +36,7 @@ class Stock {
     this.pb,
     this.marketCap,
     this.volumeRatio,
+    this.marketDepth = const MarketDepth(),
   });
 
   final String code;
@@ -59,8 +60,10 @@ class Stock {
   final double? pb;
   final double? marketCap;
   final double? volumeRatio;
+  final MarketDepth marketDepth;
 
   bool get isUp => (percent ?? 0) >= 0;
+  bool get hasMarketDepth => marketDepth.hasData;
 
   Stock copyWith({
     String? code,
@@ -84,6 +87,7 @@ class Stock {
     double? pb,
     double? marketCap,
     double? volumeRatio,
+    MarketDepth? marketDepth,
   }) {
     return Stock(
       code: code ?? this.code,
@@ -107,6 +111,7 @@ class Stock {
       pb: pb ?? this.pb,
       marketCap: marketCap ?? this.marketCap,
       volumeRatio: volumeRatio ?? this.volumeRatio,
+      marketDepth: marketDepth ?? this.marketDepth,
     );
   }
 
@@ -132,6 +137,7 @@ class Stock {
       pb: quote.pb,
       marketCap: quote.marketCap,
       volumeRatio: quote.volumeRatio,
+      marketDepth: quote.marketDepth.hasData ? quote.marketDepth : marketDepth,
     );
   }
 
@@ -158,6 +164,7 @@ class Stock {
       pb: _num(json['pb']),
       marketCap: _num(json['marketCap']),
       volumeRatio: _num(json['volumeRatio']),
+      marketDepth: MarketDepth.fromJson(json['marketDepth']),
     );
   }
 
@@ -184,6 +191,81 @@ class Stock {
       'pb': pb,
       'marketCap': marketCap,
       'volumeRatio': volumeRatio,
+      if (marketDepth.hasData) 'marketDepth': marketDepth.toJson(),
+    };
+  }
+}
+
+class MarketDepth {
+  const MarketDepth({
+    this.bids = const [],
+    this.asks = const [],
+    this.isFullDepth = false,
+    this.updatedAt,
+  });
+
+  final List<MarketDepthLevel> bids;
+  final List<MarketDepthLevel> asks;
+  final bool isFullDepth;
+  final DateTime? updatedAt;
+
+  bool get hasData => bids.isNotEmpty || asks.isNotEmpty;
+
+  factory MarketDepth.bestQuote({
+    double? bidPrice,
+    double? bidVolume,
+    double? askPrice,
+    double? askVolume,
+    DateTime? updatedAt,
+  }) {
+    return MarketDepth(
+      bids: _levelList(bidPrice, bidVolume),
+      asks: _levelList(askPrice, askVolume),
+      updatedAt: updatedAt,
+    );
+  }
+
+  factory MarketDepth.fromJson(Object? raw) {
+    if (raw is! Map) return const MarketDepth();
+    final json = Map<String, dynamic>.from(raw);
+    return MarketDepth(
+      bids: _depthFromJson(json['bids']),
+      asks: _depthFromJson(json['asks']),
+      isFullDepth: json['isFullDepth'] == true,
+      updatedAt: _date(json['updatedAt']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (bids.isNotEmpty) 'bids': bids.map((level) => level.toJson()).toList(),
+      if (asks.isNotEmpty) 'asks': asks.map((level) => level.toJson()).toList(),
+      'isFullDepth': isFullDepth,
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+    };
+  }
+}
+
+class MarketDepthLevel {
+  const MarketDepthLevel({
+    required this.price,
+    this.volume,
+  });
+
+  final double price;
+  final double? volume;
+
+  factory MarketDepthLevel.fromJson(Map<String, dynamic> json) {
+    return MarketDepthLevel(
+      price: _num(json['price']) ?? 0,
+      volume: _num(json['volume']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'price': price,
+      if (volume != null) 'volume': volume,
     };
   }
 }
@@ -192,6 +274,26 @@ double? _num(Object? value) {
   if (value == null) return null;
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString());
+}
+
+DateTime? _date(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  return DateTime.tryParse(value.toString());
+}
+
+List<MarketDepthLevel> _levelList(double? price, double? volume) {
+  if (price == null || price <= 0) return const [];
+  return [MarketDepthLevel(price: price, volume: volume)];
+}
+
+List<MarketDepthLevel> _depthFromJson(Object? raw) {
+  if (raw is! List) return const [];
+  return raw
+      .whereType<Map>()
+      .map((item) => MarketDepthLevel.fromJson(Map<String, dynamic>.from(item)))
+      .where((level) => level.price > 0)
+      .toList();
 }
 
 StockType _typeFromString(String? raw) {

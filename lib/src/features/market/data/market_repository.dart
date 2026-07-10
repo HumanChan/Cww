@@ -308,6 +308,21 @@ class MarketRepository {
     return quoteGroups.expand((quotes) => quotes).toList();
   }
 
+  Future<MarketDepth> fetchMarketDepth(Stock stock) async {
+    try {
+      if (stock.type == StockType.crypto) {
+        final depth = await _binance.getOrderBook(stock.secid, limit: 5);
+        return depth.hasData ? depth : stock.marketDepth;
+      }
+      if (isYahooStock(stock.code)) return stock.marketDepth;
+
+      final depth = await _eastMoney.getBestQuoteDepth(stock.secid);
+      return depth.hasData ? depth : stock.marketDepth;
+    } catch (_) {
+      return stock.marketDepth;
+    }
+  }
+
   Future<ChartData> fetchChart(
     Stock stock,
     ChartType type, {

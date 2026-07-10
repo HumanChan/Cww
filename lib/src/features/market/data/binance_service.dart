@@ -8,15 +8,20 @@ class BinanceService {
   BinanceService(this._dio);
 
   final Dio _dio;
+  final Map<String, MarketDepth> _depthCache = {};
 
   static const _baseUrl = 'https://data-api.binance.vision/api/v3';
+  static const _depthMaxAge = Duration(seconds: 3);
 
   Future<List<Stock>> searchCrypto(String keyword) async {
     final value = keyword.trim().toUpperCase();
     if (value.isEmpty) return [];
 
     final localMatches = topCryptoPairs
-        .where((pair) => pair.$1.contains(value) || pair.$2.toUpperCase().contains(value))
+        .where(
+          (pair) =>
+              pair.$1.contains(value) || pair.$2.toUpperCase().contains(value),
+        )
         .map(
           (pair) => Stock(
             code: pair.$1,
@@ -32,7 +37,10 @@ class BinanceService {
     if (value.length < 3) return [];
     final symbol = value.endsWith('USDT') ? value : '${value}USDT';
     try {
-      final response = await _dio.get<dynamic>('$_baseUrl/ticker/price', queryParameters: {'symbol': symbol});
+      final response = await _dio.get<dynamic>(
+        '$_baseUrl/ticker/price',
+        queryParameters: {'symbol': symbol},
+      );
       if (response.statusCode == 200) {
         return [
           Stock(
@@ -55,10 +63,13 @@ class BinanceService {
     final results = await Future.wait(
       symbols.map((symbol) async {
         try {
-          final response = await _dio.get<dynamic>(
+          final tickerFuture = _dio.get<dynamic>(
             '$_baseUrl/ticker/24hr',
             queryParameters: {'symbol': symbol},
           );
+          final depthFuture = getOrderBook(symbol);
+          final response = await tickerFuture;
+          final depth = await depthFuture;
           final data = response.data;
           if (data is! Map) return null;
           return Stock(
@@ -76,6 +87,7 @@ class BinanceService {
             preClose: _safeDouble(data['prevClosePrice']),
             amount: _safeDouble(data['quoteVolume']),
             volume: _safeDouble(data['volume']),
+            marketDepth: depth,
           );
         } catch (_) {
           return null;
@@ -105,37 +117,86 @@ class BinanceService {
     if (type == ChartType.intraday) {
       return ChartData(
         type: type,
-        intraday: rows.whereType<List>().map((row) {
-          final first = _at(row, 0);
-          final millis = first is int ? first : int.tryParse(first?.toString() ?? '') ?? 0;
-          final date = DateTime.fromMillisecondsSinceEpoch(millis);
-          return ChartPoint(
-            time:
-                '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
-            price: _safeDouble(_at(row, 4)) ?? 0,
-            avg: _safeDouble(_at(row, 4)) ?? 0,
-            volume: _safeDouble(_at(row, 5)) ?? 0,
-          );
-        }).where((point) => point.price > 0).toList(),
+        intraday: rows
+            .whereType<List>()
+            .map((row) {
+              final first = _at(row, 0);
+              final millis = first is int
+                  ? first
+                  : int.tryParse(first?.toString() ?? '') ?? 0;
+              final date = DateTime.fromMillisecondsSinceEpoch(millis);
+              return ChartPoint(
+                time:
+                    '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                price: _safeDouble(_at(row, 4)) ?? 0,
+                avg: _safeDouble(_at(row, 4)) ?? 0,
+                volume: _safeDouble(_at(row, 5)) ?? 0,
+              );
+            })
+            .where((point) => point.price > 0)
+            .toList(),
       );
     }
 
     return ChartData(
       type: type,
-      kLine: rows.whereType<List>().map((row) {
-        final first = _at(row, 0);
-        final millis = first is int ? first : int.tryParse(first?.toString() ?? '') ?? 0;
-        final date = DateTime.fromMillisecondsSinceEpoch(millis).toIso8601String().split('T').first;
-        return KLinePoint(
-          date: date,
-          open: _safeDouble(_at(row, 1)) ?? 0,
-          high: _safeDouble(_at(row, 2)) ?? 0,
-          low: _safeDouble(_at(row, 3)) ?? 0,
-          close: _safeDouble(_at(row, 4)) ?? 0,
-          volume: _safeDouble(_at(row, 5)) ?? 0,
-        );
-      }).where((point) => point.close > 0 && point.open > 0).toList(),
+      kLine: rows
+          .whereType<List>()
+          .map((row) {
+            final first = _at(row, 0);
+            final millis = first is int
+                ? first
+                : int.tryParse(first?.toString() ?? '') ?? 0;
+            final date = DateTime.fromMillisecondsSinceEpoch(millis)
+                .toIso8601String()
+                .split('T')
+                .first;
+            return KLinePoint(
+              date: date,
+              open: _safeDouble(_at(row, 1)) ?? 0,
+              high: _safeDouble(_at(row, 2)) ?? 0,
+              low: _safeDouble(_at(row, 3)) ?? 0,
+              close: _safeDouble(_at(row, 4)) ?? 0,
+              volume: _safeDouble(_at(row, 5)) ?? 0,
+            );
+          })
+          .where((point) => point.close > 0 && point.open > 0)
+          .toList(),
     );
+  }
+
+  Future<MarketDepth> getOrderBook(String symbol, {int limit = 5}) async {
+    final normalizedLimit = limit.clamp(1, 5000);
+    final cacheKey = '$symbol:$normalizedLimit';
+    final cached = _depthCache[cacheKey];
+    final now = DateTime.now();
+    if (cached != null &&
+        cached.updatedAt != null &&
+        now.difference(cached.updatedAt!) < _depthMaxAge) {
+      return cached;
+    }
+
+    try {
+      final response = await _dio.get<dynamic>(
+        '$_baseUrl/depth',
+        queryParameters: {
+          'symbol': symbol,
+          'limit': normalizedLimit,
+        },
+      );
+      final data = response.data;
+      if (data is! Map) return cached ?? const MarketDepth();
+      final depth = MarketDepth(
+        bids: _parseDepthSide(data['bids']),
+        asks: _parseDepthSide(data['asks']),
+        isFullDepth: true,
+        updatedAt: now,
+      );
+      _depthCache[cacheKey] = depth;
+      return depth;
+    } catch (_) {
+      return cached ?? const MarketDepth();
+    }
   }
 }
 
@@ -143,6 +204,20 @@ double? _safeDouble(Object? value) {
   if (value == null || value == '-' || value == '') return null;
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString());
+}
+
+List<MarketDepthLevel> _parseDepthSide(Object? raw) {
+  if (raw is! List) return const [];
+  return raw
+      .whereType<List>()
+      .map((row) {
+        return MarketDepthLevel(
+          price: _safeDouble(_at(row, 0)) ?? 0,
+          volume: _safeDouble(_at(row, 1)),
+        );
+      })
+      .where((level) => level.price > 0)
+      .toList();
 }
 
 Object? _at(List<dynamic> values, int index) {

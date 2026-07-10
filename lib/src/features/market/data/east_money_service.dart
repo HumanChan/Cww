@@ -67,7 +67,8 @@ class EastMoneyService {
 
   Future<List<Stock>> getStockQuotes(List<String> secids) async {
     if (secids.isEmpty) return [];
-    const fields = 'f12,f14,f2,f3,f4,f15,f16,f17,f18,f6,f5,f8,f9,f23,f20,f115,f114,f10';
+    const fields =
+        'f12,f14,f2,f3,f4,f15,f16,f17,f18,f6,f5,f8,f9,f23,f20,f115,f114,f10,f31,f32';
     final response = await _dio.get<dynamic>(
       'https://push2.eastmoney.com/api/qt/ulist.np/get',
       queryParameters: {
@@ -82,7 +83,8 @@ class EastMoneyService {
     final data = root['data'];
     if (data is! Map || data['diff'] == null) return [];
     final diff = data['diff'];
-    final rows = diff is List ? diff : (diff is Map ? diff.values.toList() : const []);
+    final rows =
+        diff is List ? diff : (diff is Map ? diff.values.toList() : const []);
 
     return rows.whereType<Map>().map((item) {
       final code = item['f12']?.toString() ?? '';
@@ -111,8 +113,15 @@ class EastMoneyService {
         peTTM: _safeDouble(item['f115']),
         peStatic: _safeDouble(item['f114']),
         volumeRatio: _safeDouble(item['f10']),
+        marketDepth: _bestQuoteDepth(item),
       );
     }).toList();
+  }
+
+  Future<MarketDepth> getBestQuoteDepth(String secid) async {
+    final quotes = await getStockQuotes([secid]);
+    if (quotes.isEmpty) return const MarketDepth();
+    return quotes.first.marketDepth;
   }
 
   Future<List<ChartPoint>> getIntradayChart(String secid) async {
@@ -132,19 +141,24 @@ class EastMoneyService {
     final trends = data is Map ? data['trends'] : null;
     if (trends is! List) return [];
 
-    return trends.whereType<String>().map((line) {
-      final values = line.split(',');
-      if (values.length < 4) {
-        return const ChartPoint(time: '', price: 0);
-      }
-      final time = values[0].length >= 16 ? values[0].substring(11, 16) : values[0];
-      return ChartPoint(
-        time: time,
-        price: _safeDouble(values[1]) ?? 0,
-        volume: _safeDouble(values[2]) ?? 0,
-        avg: _safeDouble(values[3]) ?? 0,
-      );
-    }).where((point) => point.time.isNotEmpty && point.price > 0).toList();
+    return trends
+        .whereType<String>()
+        .map((line) {
+          final values = line.split(',');
+          if (values.length < 4) {
+            return const ChartPoint(time: '', price: 0);
+          }
+          final time =
+              values[0].length >= 16 ? values[0].substring(11, 16) : values[0];
+          return ChartPoint(
+            time: time,
+            price: _safeDouble(values[1]) ?? 0,
+            volume: _safeDouble(values[2]) ?? 0,
+            avg: _safeDouble(values[3]) ?? 0,
+          );
+        })
+        .where((point) => point.time.isNotEmpty && point.price > 0)
+        .toList();
   }
 
   Future<List<KLinePoint>> getKLineChart(String secid, ChartType type) async {
@@ -172,17 +186,21 @@ class EastMoneyService {
     final klines = data is Map ? data['klines'] : null;
     if (klines is! List) return [];
 
-    return klines.whereType<String>().map((line) {
-      final values = line.split(',');
-      return KLinePoint(
-        date: _at(values, 0) ?? '',
-        open: _safeDouble(_at(values, 1)) ?? 0,
-        close: _safeDouble(_at(values, 2)) ?? 0,
-        high: _safeDouble(_at(values, 3)) ?? 0,
-        low: _safeDouble(_at(values, 4)) ?? 0,
-        volume: _safeDouble(_at(values, 5)) ?? 0,
-      );
-    }).where((point) => point.close > 0 && point.open > 0).toList();
+    return klines
+        .whereType<String>()
+        .map((line) {
+          final values = line.split(',');
+          return KLinePoint(
+            date: _at(values, 0) ?? '',
+            open: _safeDouble(_at(values, 1)) ?? 0,
+            close: _safeDouble(_at(values, 2)) ?? 0,
+            high: _safeDouble(_at(values, 3)) ?? 0,
+            low: _safeDouble(_at(values, 4)) ?? 0,
+            volume: _safeDouble(_at(values, 5)) ?? 0,
+          );
+        })
+        .where((point) => point.close > 0 && point.open > 0)
+        .toList();
   }
 }
 
@@ -201,6 +219,14 @@ double? _safeDouble(Object? value) {
   if (value == null || value == '-' || value == '') return null;
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString());
+}
+
+MarketDepth _bestQuoteDepth(Map item) {
+  return MarketDepth.bestQuote(
+    bidPrice: _safeDouble(item['f31']),
+    askPrice: _safeDouble(item['f32']),
+    updatedAt: DateTime.now(),
+  );
 }
 
 T? _at<T>(List<T> values, int index) {
