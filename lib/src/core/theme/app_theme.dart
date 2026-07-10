@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 
+import 'app_tokens.dart';
+
 class AppTheme {
-  static const _lightScaffold = Color(0xFFF8FAFC);
-  static const _darkScaffold = Color(0xFF020617);
+  static const _lightScaffold = AppPalette.screen;
+  static const _darkScaffold = AppPalette.shell;
   static const _darkSurface = Color(0xFF111827);
 
   static ThemeData get light {
@@ -15,7 +17,7 @@ class AppTheme {
       subThemesData: _subThemes,
     );
 
-    final scheme = theme.colorScheme.copyWith(surface: Colors.white);
+    final scheme = theme.colorScheme.copyWith(surface: AppPalette.surface);
     return _base(theme.copyWith(colorScheme: scheme)).copyWith(
       scaffoldBackgroundColor: _lightScaffold,
       cardTheme: _cardTheme(scheme),
@@ -49,8 +51,14 @@ class AppTheme {
   static ThemeData _base(ThemeData theme) {
     final scheme = theme.colorScheme;
     return theme.copyWith(
-      textTheme: theme.textTheme.apply(fontFamily: 'Roboto'),
-      primaryTextTheme: theme.primaryTextTheme.apply(fontFamily: 'Roboto'),
+      textTheme: theme.textTheme.apply(
+        fontFamily: AppTypographyTokens.fontFamily,
+        fontFamilyFallback: AppTypographyTokens.fontFamilyFallback,
+      ),
+      primaryTextTheme: theme.primaryTextTheme.apply(
+        fontFamily: AppTypographyTokens.fontFamily,
+        fontFamilyFallback: AppTypographyTokens.fontFamilyFallback,
+      ),
       visualDensity: VisualDensity.adaptivePlatformDensity,
       appBarTheme: AppBarTheme(
         centerTitle: false,
@@ -66,7 +74,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: scheme.surface,

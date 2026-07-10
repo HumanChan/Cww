@@ -49,8 +49,8 @@ class MarketRepository {
 
   List<StockGroup> get defaultGroups => const [
         StockGroup(
-          id: 'default',
-          name: '自选股',
+          id: 'gd',
+          name: 'GD',
           stocks: [
             Stock(code: '000001', name: '上证指数', secid: '1.000001'),
             Stock(
@@ -61,6 +61,107 @@ class MarketRepository {
               market: Market.other,
             ),
             Stock(code: '300059', name: '东方财富', secid: '0.300059'),
+            Stock(code: '600519', name: '贵州茅台', secid: '1.600519'),
+            Stock(
+              code: '00700',
+              name: '腾讯控股',
+              secid: '116.00700',
+              market: Market.hk,
+            ),
+          ],
+        ),
+        StockGroup(
+          id: 'chip',
+          name: 'Chip',
+          stocks: [
+            Stock(code: '603986', name: '兆易创新', secid: '1.603986'),
+            Stock(code: '688766', name: '普冉股份', secid: '1.688766'),
+            Stock(code: '688981', name: '中芯国际', secid: '1.688981'),
+            Stock(code: '001309', name: '德明利', secid: '0.001309'),
+          ],
+        ),
+        StockGroup(
+          id: 'hk',
+          name: 'HK',
+          stocks: [
+            Stock(
+              code: '00700',
+              name: '腾讯控股',
+              secid: '116.00700',
+              market: Market.hk,
+            ),
+            Stock(
+              code: '09988',
+              name: '阿里巴巴-W',
+              secid: '116.09988',
+              market: Market.hk,
+            ),
+            Stock(
+              code: '03690',
+              name: '美团-W',
+              secid: '116.03690',
+              market: Market.hk,
+            ),
+          ],
+        ),
+        StockGroup(
+          id: 'us',
+          name: 'US',
+          stocks: [
+            Stock(
+              code: 'AAPL',
+              name: 'Apple',
+              secid: 'AAPL',
+              market: Market.us,
+            ),
+            Stock(
+              code: 'MSFT',
+              name: 'Microsoft',
+              secid: 'MSFT',
+              market: Market.us,
+            ),
+            Stock(
+              code: 'NVDA',
+              name: 'NVIDIA',
+              secid: 'NVDA',
+              market: Market.us,
+            ),
+          ],
+        ),
+        StockGroup(
+          id: 'kr',
+          name: 'KR',
+          stocks: [
+            Stock(
+              code: '005930.KS',
+              name: 'Samsung',
+              secid: '005930.KS',
+              market: Market.kr,
+            ),
+            Stock(
+              code: '000660.KS',
+              name: 'SK Hynix',
+              secid: '000660.KS',
+              market: Market.kr,
+            ),
+          ],
+        ),
+        StockGroup(
+          id: 'tw',
+          name: 'TW',
+          stocks: [
+            Stock(
+              code: '2330.TW',
+              name: 'TSMC',
+              secid: '2330.TW',
+              market: Market.tw,
+            ),
+            Stock(
+              code: '2317.TW',
+              name: 'Hon Hai',
+              secid: '2317.TW',
+              market: Market.tw,
+            ),
           ],
         ),
       ];
@@ -77,10 +178,20 @@ class MarketRepository {
           .map(StockGroup.fromJson)
           .where((group) => group.id.isNotEmpty && group.name.isNotEmpty)
           .toList();
+      if (_isLegacyDefaultSeed(groups)) return defaultGroups;
       return groups.isEmpty ? defaultGroups : groups;
     } catch (_) {
       return defaultGroups;
     }
+  }
+
+  bool _isLegacyDefaultSeed(List<StockGroup> groups) {
+    if (groups.length != 1) return false;
+    final group = groups.single;
+    if (group.id != 'default' || group.stocks.length > 3) return false;
+    const legacyCodes = {'000001', 'BTCUSDT', '300059'};
+    final codes = group.stocks.map((stock) => stock.code).toSet();
+    return codes.isNotEmpty && codes.every(legacyCodes.contains);
   }
 
   Future<void> saveGroups(List<StockGroup> groups) async {

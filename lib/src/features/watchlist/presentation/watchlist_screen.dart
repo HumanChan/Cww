@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../application/watchlist_controller.dart';
 import 'group_manager_sheet.dart';
 import 'stock_detail_screen.dart';
@@ -82,25 +83,15 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
                         onPressed: controller.toggleTheme,
                         icon: Icon(
                           state.isDark
-                              ? Icons.light_mode_rounded
-                              : Icons.dark_mode_rounded,
+                              ? Icons.light_mode_outlined
+                              : Icons.dark_mode_outlined,
                         ),
                       ),
                     ],
                   ),
-                  if (state.lastUpdated != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      '已更新 ${_formatUpdateTime(state.lastUpdated!)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF64748B),
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   const SearchPanel(),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 24),
                   _GroupTabs(
                     activeGroupId: state.activeGroupId,
                     groups: state.groups,
@@ -122,7 +113,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
                     ? const _EmptyState()
                     : ReorderableListView.builder(
                         key: ValueKey(activeGroup.id),
-                        padding: const EdgeInsets.fromLTRB(24, 6, 24, 32),
+                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
                         itemCount: activeGroup.stocks.length,
                         onReorderItem: controller.reorderStocks,
                         buildDefaultDragHandles: false,
@@ -137,7 +128,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
                           final stock = activeGroup.stocks[index];
                           return Padding(
                             key: ValueKey('${activeGroup.id}_${stock.secid}'),
-                            padding: const EdgeInsets.symmetric(vertical: 7),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
                             child: StockCard(
                               reorderIndex: index,
                               stock: stock,
@@ -229,30 +220,25 @@ class _GroupTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 42,
-      child: Row(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        clipBehavior: Clip.none,
         children: [
-          Expanded(
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                final selected = group.id == activeGroupId;
-                return _PillButton(
-                  selected: selected,
-                  label: group.name,
-                  onPressed: () => onSelect(group.id),
-                );
-              },
+          for (final group in groups) ...[
+            _PillButton(
+              selected: group.id == activeGroupId,
+              label: group.name,
+              onPressed: () => onSelect(group.id),
             ),
-          ),
+            const SizedBox(width: 8),
+          ],
           Container(
-            margin: const EdgeInsets.only(left: 10),
-            padding: const EdgeInsets.only(left: 10),
+            margin: const EdgeInsets.only(left: 2),
+            padding: const EdgeInsets.only(left: 12, right: 2),
             decoration: const BoxDecoration(
-              border: Border(left: BorderSide(color: Color(0xFFE2E8F0))),
+              border: Border(left: BorderSide(color: AppPalette.slate200)),
             ),
             child: Row(
               children: [
@@ -291,21 +277,28 @@ class _CircleIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.white,
-        shape: const CircleBorder(
-          side: BorderSide(color: Color(0xFFE2E8F0)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppPalette.slate200),
+          boxShadow: AppShadows.control(),
         ),
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.08),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: SizedBox.square(
-            dimension: 40,
-            child: IconTheme(
-              data: const IconThemeData(color: Color(0xFF64748B), size: 21),
-              child: icon,
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: SizedBox.square(
+              dimension: 40,
+              child: IconTheme(
+                data: const IconThemeData(
+                  color: AppPalette.slate500,
+                  size: 20,
+                ),
+                child: icon,
+              ),
             ),
           ),
         ),
@@ -333,39 +326,35 @@ class _PillButton extends StatelessWidget {
             ? const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+                colors: [AppPalette.blue500, AppPalette.blue600],
               )
             : null,
         color: selected ? null : Colors.white,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: selected ? Colors.transparent : const Color(0xFFF1F5F9),
+          color: selected ? Colors.transparent : AppPalette.slate100,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: selected
-                ? const Color(0x332563EB)
-                : Colors.black.withValues(alpha: 0.04),
-            blurRadius: selected ? 10 : 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppShadows.pill(selected: selected),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(999),
           onTap: onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? Colors.white : const Color(0xFF64748B),
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 58),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: selected ? Colors.white : AppPalette.slate500,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
@@ -390,19 +379,23 @@ class _SmallToolButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.white,
-        shape: const CircleBorder(
-          side: BorderSide(color: Color(0xFFF1F5F9)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppPalette.slate100),
+          boxShadow: AppShadows.control(),
         ),
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.06),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: SizedBox.square(
-            dimension: 36,
-            child: Icon(icon, size: 20, color: const Color(0xFF94A3B8)),
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: SizedBox.square(
+              dimension: 34,
+              child: Icon(icon, size: 18, color: AppPalette.slate400),
+            ),
           ),
         ),
       ),
@@ -484,8 +477,4 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatUpdateTime(DateTime time) {
-  return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
 }

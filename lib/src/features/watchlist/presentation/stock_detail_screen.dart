@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../../core/utils/formatters.dart';
 import '../../chart/presentation/stock_chart_panel.dart';
 import '../../market/data/market_repository.dart';
@@ -34,8 +35,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   Widget build(BuildContext context) {
     final watchlistState = ref.watch(watchlistControllerProvider);
     final stock = _latestStock(watchlistState);
-    final trendColor =
-        stock.isUp ? const Color(0xFF2563EB) : const Color(0xFF475569);
+    final trendColor = stock.isUp ? AppPalette.blue600 : AppPalette.slate600;
     final symbol = currencySymbol(stock);
 
     return Scaffold(
@@ -44,7 +44,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 14),
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
               child: Row(
                 children: [
                   _DetailCircleButton(
@@ -65,7 +65,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                               Theme.of(context).textTheme.titleLarge?.copyWith(
                                     fontSize: 20,
                                     fontWeight: FontWeight.w900,
-                                    color: const Color(0xFF0F172A),
+                                    color: AppPalette.text,
                                     letterSpacing: 0,
                                   ),
                         ),
@@ -130,7 +130,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
               ),
             ),
             _StatsGrid(stock: stock),
-            const SizedBox(height: 18),
+            const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: _ChartTabs(
@@ -143,7 +143,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
             Expanded(
               child: FutureBuilder<ChartData>(
                 future: _chartFuture,
@@ -203,19 +203,28 @@ class _DetailCircleButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.white.withValues(alpha: 0.86),
-        shape: const CircleBorder(side: BorderSide(color: Color(0xFFE2E8F0))),
-        elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.08),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: SizedBox.square(
-            dimension: 40,
-            child: IconTheme(
-              data: const IconThemeData(color: Color(0xFF64748B), size: 21),
-              child: icon,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.86),
+          shape: BoxShape.circle,
+          border: Border.all(color: AppPalette.slate200),
+          boxShadow: AppShadows.control(),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: SizedBox.square(
+              dimension: 40,
+              child: IconTheme(
+                data: const IconThemeData(
+                  color: AppPalette.slate500,
+                  size: 21,
+                ),
+                child: icon,
+              ),
             ),
           ),
         ),
@@ -259,13 +268,7 @@ class _StatsGrid extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.86),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                boxShadow: AppShadows.card(),
               ),
               padding: const EdgeInsets.all(20),
               child: GridView.builder(
@@ -274,9 +277,9 @@ class _StatsGrid extends StatelessWidget {
                 itemCount: items.length,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
-                  childAspectRatio: 1.85,
+                  childAspectRatio: 2.35,
                   crossAxisSpacing: 8,
-                  mainAxisSpacing: 14,
+                  mainAxisSpacing: 10,
                 ),
                 itemBuilder: (context, index) {
                   final item = items[index];
@@ -286,7 +289,7 @@ class _StatsGrid extends StatelessWidget {
                       Text(
                         item.$1,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: const Color(0xFF94A3B8),
+                              color: AppPalette.slate400,
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 0,
@@ -298,7 +301,7 @@ class _StatsGrid extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF1E293B),
+                              color: AppPalette.slate800,
                               fontWeight: FontWeight.w900,
                             ),
                       ),
@@ -687,37 +690,36 @@ class _ChartTabButton extends StatelessWidget {
             ? const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF334155), Color(0xFF1E293B)],
+                colors: [AppPalette.slate700, AppPalette.slate800],
               )
             : null,
         color: selected ? null : Colors.white,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: selected ? Colors.transparent : const Color(0xFFF1F5F9),
+          color: selected ? Colors.transparent : AppPalette.slate100,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: selected
-                ? const Color(0x331E293B)
-                : Colors.black.withValues(alpha: 0.04),
-            blurRadius: selected ? 10 : 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppShadows.pill(
+          selected: selected,
+          selectedColor: AppPalette.slate800,
+        ),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(999),
           onTap: onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : const Color(0xFF64748B),
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 58),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: selected ? Colors.white : AppPalette.slate500,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
