@@ -40,134 +40,162 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              child: Row(
-                children: [
-                  _DetailCircleButton(
-                    tooltip: '返回',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          stock.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w900,
-                                    color: AppPalette.text,
-                                    letterSpacing: 0,
-                                  ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                formatPrice(
-                                  stock.price,
-                                  type: stock.type,
-                                  symbol: symbol,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final chartHeight = _chartPanelHeight(constraints.maxHeight);
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Row(
+                        children: [
+                          _DetailCircleButton(
+                            tooltip: '返回',
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text(
+                                  stock.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        color: AppPalette.text,
+                                        letterSpacing: 0,
+                                      ),
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .displaySmall
-                                    ?.copyWith(
-                                      color: trendColor,
-                                      fontSize: 31,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0,
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        formatPrice(
+                                          stock.price,
+                                          type: stock.type,
+                                          symbol: symbol,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .displaySmall
+                                            ?.copyWith(
+                                              color: trendColor,
+                                              fontSize: 31,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0,
+                                            ),
+                                      ),
                                     ),
-                              ),
+                                    const SizedBox(width: 8),
+                                    DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: trendColor.withValues(
+                                          alpha: 0.10,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: trendColor.withValues(
+                                            alpha: stock.isUp ? 0.16 : 0.12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        child: Text(
+                                          formatSignedPercent(stock.percent),
+                                          style: TextStyle(
+                                            color: trendColor,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: trendColor.withValues(alpha: 0.10),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: trendColor.withValues(
-                                    alpha: stock.isUp ? 0.16 : 0.12,
-                                  ),
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
-                                ),
-                                child: Text(
-                                  formatSignedPercent(stock.percent),
-                                  style: TextStyle(
-                                    color: trendColor,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                          const SizedBox(width: 48),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
+                    _StatsGrid(stock: stock),
+                    const SizedBox(height: 24),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: _ChartTabs(
+                        selected: _chartType,
+                        onSelected: (type) {
+                          setState(() {
+                            _chartType = type;
+                            _chartFuture = _loadChart();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: chartHeight,
+                      child: FutureBuilder<ChartData>(
+                        future: _chartFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState !=
+                              ConnectionState.done) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          if (snapshot.hasError || !snapshot.hasData) {
+                            return _ChartError(
+                              onRetry: () => setState(
+                                () => _chartFuture = _loadChart(),
+                              ),
+                            );
+                          }
+                          return StockChartPanel(
+                            stock: stock,
+                            data: snapshot.data!,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            _StatsGrid(stock: stock),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _ChartTabs(
-                selected: _chartType,
-                onSelected: (type) {
-                  setState(() {
-                    _chartType = type;
-                    _chartFuture = _loadChart();
-                  });
-                },
-              ),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: FutureBuilder<ChartData>(
-                future: _chartFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError || !snapshot.hasData) {
-                    return _ChartError(
-                      onRetry: () =>
-                          setState(() => _chartFuture = _loadChart()),
-                    );
-                  }
-                  return StockChartPanel(
-                    stock: stock,
-                    data: snapshot.data!,
-                  );
-                },
-              ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
+  }
+
+  double _chartPanelHeight(double viewportHeight) {
+    final minHeight = _chartType == ChartType.intraday ? 350.0 : 390.0;
+    final targetHeight = _chartType == ChartType.intraday ? 382.0 : 430.0;
+    return (viewportHeight - 330).clamp(minHeight, targetHeight).toDouble();
   }
 
   Future<ChartData> _loadChart() {

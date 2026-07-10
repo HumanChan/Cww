@@ -7,6 +7,7 @@ import 'group_manager_sheet.dart';
 import 'stock_detail_screen.dart';
 import 'widgets/search_panel.dart';
 import 'widgets/stock_card.dart';
+import '../../market/domain/stock.dart';
 import '../../market/domain/stock_group.dart';
 
 class WatchlistScreen extends ConsumerStatefulWidget {
@@ -136,10 +137,7 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
                                   state.flashingCodes.contains(stock.code),
                               onTap: () {
                                 Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        StockDetailScreen(stock: stock),
-                                  ),
+                                  _stockDetailRoute(stock),
                                 );
                               },
                               onDelete: () =>
@@ -200,6 +198,32 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
       },
     );
   }
+}
+
+Route<void> _stockDetailRoute(Stock stock) {
+  return PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 240),
+    pageBuilder: (context, animation, secondaryAnimation) =>
+        StockDetailScreen(stock: stock),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: Tween<double>(begin: 0.50, end: 1).animate(curved),
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.16, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
 }
 
 class _GroupTabs extends StatelessWidget {
