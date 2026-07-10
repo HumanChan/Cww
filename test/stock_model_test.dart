@@ -27,6 +27,8 @@ void main() {
         bids: [MarketDepthLevel(price: 101.9, volume: 1.2)],
         asks: [MarketDepthLevel(price: 102.1, volume: 1.4)],
         isFullDepth: true,
+        orderRatio: 12.34,
+        orderDiff: 56,
       ),
     );
 
@@ -37,5 +39,7 @@ void main() {
     expect(restored.marketDepth.isFullDepth, isTrue);
     expect(restored.marketDepth.bids.single.price, 101.9);
     expect(restored.marketDepth.asks.single.volume, 1.4);
+    expect(restored.marketDepth.orderRatio, 12.34);
+    expect(restored.marketDepth.orderDiff, 56);
   });
 }

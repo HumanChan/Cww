@@ -316,7 +316,7 @@ class MarketRepository {
       }
       if (isYahooStock(stock.code)) return stock.marketDepth;
 
-      final depth = await _eastMoney.getBestQuoteDepth(stock.secid);
+      final depth = await _eastMoney.getMarketDepth(stock.secid);
       return depth.hasData ? depth : stock.marketDepth;
     } catch (_) {
       return stock.marketDepth;

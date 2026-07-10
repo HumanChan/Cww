@@ -5,6 +5,11 @@ import 'package:dio/dio.dart';
 import '../domain/chart_models.dart';
 import '../domain/stock.dart';
 
+const _eastMoneyQuoteToken = 'fa5fd1943c7b386f172d6893dbfba10b';
+const _stockDepthFields = 'f11,f12,f13,f14,f15,f16,f17,f18,f19,f20,'
+    'f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,'
+    'f59,f60,f152,f191,f192,f531,f532';
+
 class EastMoneyService {
   EastMoneyService(this._dio);
 
@@ -118,10 +123,23 @@ class EastMoneyService {
     }).toList();
   }
 
-  Future<MarketDepth> getBestQuoteDepth(String secid) async {
-    final quotes = await getStockQuotes([secid]);
-    if (quotes.isEmpty) return const MarketDepth();
-    return quotes.first.marketDepth;
+  Future<MarketDepth> getMarketDepth(String secid) async {
+    final response = await _dio.get<dynamic>(
+      'https://push2.eastmoney.com/api/qt/stock/get',
+      queryParameters: {
+        'secid': secid,
+        'fields': _stockDepthFields,
+        'fltt': 1,
+        'invt': 2,
+        'ut': _eastMoneyQuoteToken,
+        'dect': 1,
+      },
+    );
+
+    final root = _asMap(response.data);
+    final data = root['data'];
+    if (data is! Map) return const MarketDepth();
+    return _stockDepthFromRealtime(data);
   }
 
   Future<List<ChartPoint>> getIntradayChart(String secid) async {
@@ -227,6 +245,83 @@ MarketDepth _bestQuoteDepth(Map item) {
     askPrice: _safeDouble(item['f32']),
     updatedAt: DateTime.now(),
   );
+}
+
+MarketDepth _stockDepthFromRealtime(Map item) {
+  final bids = _stockDepthLevels(
+    item,
+    const [
+      (priceField: 'f19', volumeField: 'f20'),
+      (priceField: 'f17', volumeField: 'f18'),
+      (priceField: 'f15', volumeField: 'f16'),
+      (priceField: 'f13', volumeField: 'f14'),
+      (priceField: 'f11', volumeField: 'f12'),
+    ],
+  );
+  final asks = _stockDepthLevels(
+    item,
+    const [
+      (priceField: 'f39', volumeField: 'f40'),
+      (priceField: 'f37', volumeField: 'f38'),
+      (priceField: 'f35', volumeField: 'f36'),
+      (priceField: 'f33', volumeField: 'f34'),
+      (priceField: 'f31', volumeField: 'f32'),
+    ],
+  );
+
+  return MarketDepth(
+    bids: bids,
+    asks: asks,
+    isFullDepth: bids.length > 1 || asks.length > 1,
+    orderRatio: _scaledValue(item, 'f191', 'f152'),
+    orderDiff: _safeDouble(item['f192']),
+    updatedAt: DateTime.now(),
+  );
+}
+
+List<MarketDepthLevel> _stockDepthLevels(
+  Map item,
+  List<({String priceField, String volumeField})> fields,
+) {
+  return fields
+      .map((field) {
+        final price = _scaledPrice(item, field.priceField);
+        if (price == null || price <= 0) return null;
+        final volume = _safeDouble(item[field.volumeField]);
+        return MarketDepthLevel(
+          price: price,
+          volume: volume == null || volume <= 0 ? null : volume,
+        );
+      })
+      .whereType<MarketDepthLevel>()
+      .toList();
+}
+
+double? _scaledPrice(Map item, String field) {
+  final raw = _safeDouble(item[field]);
+  if (raw == null) return null;
+  return _scaleByDecimals(raw, _safeInt(item['f59']) ?? 2);
+}
+
+double? _scaledValue(Map item, String field, String decimalsField) {
+  final raw = _safeDouble(item[field]);
+  if (raw == null) return null;
+  return _scaleByDecimals(raw, _safeInt(item[decimalsField]) ?? 0);
+}
+
+double _scaleByDecimals(double value, int decimals) {
+  var divisor = 1.0;
+  for (var i = 0; i < decimals; i++) {
+    divisor *= 10;
+  }
+  return value / divisor;
+}
+
+int? _safeInt(Object? value) {
+  if (value == null || value == '-' || value == '') return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
 }
 
 T? _at<T>(List<T> values, int index) {

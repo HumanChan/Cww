@@ -201,12 +201,16 @@ class MarketDepth {
     this.bids = const [],
     this.asks = const [],
     this.isFullDepth = false,
+    this.orderRatio,
+    this.orderDiff,
     this.updatedAt,
   });
 
   final List<MarketDepthLevel> bids;
   final List<MarketDepthLevel> asks;
   final bool isFullDepth;
+  final double? orderRatio;
+  final double? orderDiff;
   final DateTime? updatedAt;
 
   bool get hasData => bids.isNotEmpty || asks.isNotEmpty;
@@ -216,11 +220,15 @@ class MarketDepth {
     double? bidVolume,
     double? askPrice,
     double? askVolume,
+    double? orderRatio,
+    double? orderDiff,
     DateTime? updatedAt,
   }) {
     return MarketDepth(
       bids: _levelList(bidPrice, bidVolume),
       asks: _levelList(askPrice, askVolume),
+      orderRatio: orderRatio,
+      orderDiff: orderDiff,
       updatedAt: updatedAt,
     );
   }
@@ -232,6 +240,8 @@ class MarketDepth {
       bids: _depthFromJson(json['bids']),
       asks: _depthFromJson(json['asks']),
       isFullDepth: json['isFullDepth'] == true,
+      orderRatio: _num(json['orderRatio']),
+      orderDiff: _num(json['orderDiff']),
       updatedAt: _date(json['updatedAt']),
     );
   }
@@ -241,6 +251,8 @@ class MarketDepth {
       if (bids.isNotEmpty) 'bids': bids.map((level) => level.toJson()).toList(),
       if (asks.isNotEmpty) 'asks': asks.map((level) => level.toJson()).toList(),
       'isFullDepth': isFullDepth,
+      if (orderRatio != null) 'orderRatio': orderRatio,
+      if (orderDiff != null) 'orderDiff': orderDiff,
       if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
     };
   }

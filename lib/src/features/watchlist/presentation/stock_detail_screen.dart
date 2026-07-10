@@ -592,6 +592,7 @@ class _DepthBookSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = depth.isFullDepth ? '五档盘口' : '最佳报价';
+    final hasOrderMetrics = depth.orderRatio != null || depth.orderDiff != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -621,30 +622,59 @@ class _DepthBookSection extends StatelessWidget {
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _DepthSideColumn(
-                    label: '买盘',
-                    prefix: '买',
-                    levels: depth.bids,
-                    tone: AppPalette.blue600,
-                    stock: stock,
-                    symbol: symbol,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _DepthSideColumn(
+                        label: '买盘',
+                        prefix: '买',
+                        levels: depth.bids,
+                        tone: AppPalette.blue600,
+                        stock: stock,
+                        symbol: symbol,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DepthSideColumn(
+                        label: '卖盘',
+                        prefix: '卖',
+                        levels: depth.asks,
+                        tone: AppPalette.slate600,
+                        stock: stock,
+                        symbol: symbol,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _DepthSideColumn(
-                    label: '卖盘',
-                    prefix: '卖',
-                    levels: depth.asks,
-                    tone: AppPalette.slate600,
-                    stock: stock,
-                    symbol: symbol,
+                if (hasOrderMetrics) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (depth.orderRatio != null)
+                        _DepthStatChip(
+                          label: '委比',
+                          value: _formatOrderRatio(depth.orderRatio),
+                          tone: _depthMetricTone(depth.orderRatio),
+                        ),
+                      if (depth.orderDiff != null)
+                        _DepthStatChip(
+                          label: '委差',
+                          value: _formatSignedDepthVolume(
+                            depth.orderDiff,
+                            stock.type,
+                          ),
+                          tone: _depthMetricTone(depth.orderDiff),
+                        ),
+                    ],
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -784,6 +814,53 @@ class _DepthEmpty extends StatelessWidget {
   }
 }
 
+class _DepthStatChip extends StatelessWidget {
+  const _DepthStatChip({
+    required this.label,
+    required this.value,
+    required this.tone,
+  });
+
+  final String label;
+  final String value;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: tone.withValues(alpha: 0.14)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppPalette.slate400,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: tone,
+                fontWeight: FontWeight.w900,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 String _formatDepthVolume(double? volume, StockType type) {
   if (volume == null || volume.isNaN) return '--';
   if (type == StockType.crypto) {
@@ -793,6 +870,23 @@ String _formatDepthVolume(double? volume, StockType type) {
     return formatAmount(volume, type: StockType.crypto);
   }
   return formatVolume(volume);
+}
+
+String _formatOrderRatio(double? ratio) {
+  if (ratio == null || ratio.isNaN) return '--';
+  final sign = ratio > 0 ? '+' : '';
+  return '$sign${ratio.toStringAsFixed(2)}%';
+}
+
+String _formatSignedDepthVolume(double? volume, StockType type) {
+  if (volume == null || volume.isNaN) return '--';
+  final sign = volume > 0 ? '+' : '';
+  return '$sign${_formatDepthVolume(volume, type)}';
+}
+
+Color _depthMetricTone(double? value) {
+  if (value == null || value < 0) return AppPalette.slate600;
+  return AppPalette.blue600;
 }
 
 class _MetricSectionData {
