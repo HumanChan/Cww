@@ -307,12 +307,14 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   final Map<int, double> _pointerTravel = <int, double>{};
   DateTime? _lastTapAt;
   Offset? _lastTapPosition;
+  int? _touchedIndex;
 
   @override
   void didUpdateWidget(covariant _KLineCandlestickChart oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.points.length != widget.points.length) {
       _endIndex = null;
+      _touchedIndex = null;
       _visibleCount = _visibleCount
           .clamp(
             _minVisibleCount,
@@ -359,6 +361,7 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
     final candleWidth =
         math.max(3.0, math.min(10.0, 280 / math.max(8, visible.length) * 0.62));
     final maBars = _movingAverageBars(visible);
+    final touchedItem = _selectedKLinePoint(visible);
     final volumeMax = visible
         .map((item) => item.point.volume)
         .where((volume) => volume > 0)
@@ -430,6 +433,16 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                             },
                           ),
                           candlestickTouchData: CandlestickTouchData(
+                            touchSpotThreshold: math.max(
+                              8,
+                              candleWidth * 0.75,
+                            ),
+                            touchCallback: (event, response) =>
+                                _handleCandlestickTouch(
+                              event,
+                              response,
+                              visible.length,
+                            ),
                             touchTooltipData: CandlestickTouchTooltipData(
                               fitInsideHorizontally: true,
                               fitInsideVertically: true,
@@ -490,31 +503,8 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                         Positioned(
                           left: 4,
                           top: 0,
-                          child: Wrap(
-                            spacing: 7,
-                            children: const [
-                              _MaLegend(
-                                label: 'MA5',
-                                color: Color(0xFFF59E0B),
-                              ),
-                              _MaLegend(
-                                label: 'MA10',
-                                color: Color(0xFF3B82F6),
-                              ),
-                              _MaLegend(
-                                label: 'MA20',
-                                color: Color(0xFFA855F7),
-                              ),
-                              _MaLegend(
-                                label: 'MA30',
-                                color: Color(0xFF22C55E),
-                              ),
-                              _MaLegend(
-                                label: 'MA60',
-                                color: Color(0xFF94A3B8),
-                              ),
-                            ],
-                          ),
+                          right: 4,
+                          child: _MaLegendStrip(item: touchedItem),
                         ),
                     ],
                   ),
@@ -527,6 +517,7 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                       points: visible,
                       maxY: volumeMax * 1.12,
                       barWidth: math.max(1.6, math.min(4.8, step * 0.48)),
+                      selectedIndex: _touchedIndex,
                     ),
                   ),
                 ],
@@ -577,7 +568,10 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
     final nextEnd =
         (currentEnd + candleDelta).clamp(count - 1, total - 1).toInt();
     if (nextEnd == currentEnd) return;
-    setState(() => _endIndex = nextEnd);
+    setState(() {
+      _endIndex = nextEnd;
+      _touchedIndex = null;
+    });
   }
 
   void _zoomWindow(double scale, int total) {
@@ -592,6 +586,7 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
     if (next == _visibleCount) return;
     setState(() {
       _visibleCount = next;
+      _touchedIndex = null;
       _endIndex =
           (_endIndex ?? total - 1).clamp(_visibleCount - 1, total - 1).toInt();
     });
@@ -610,7 +605,30 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
           .toInt();
       _endIndex = null;
       _dragRemainder = 0;
+      _touchedIndex = null;
     });
+  }
+
+  void _handleCandlestickTouch(
+    FlTouchEvent event,
+    CandlestickTouchResponse? response,
+    int visibleLength,
+  ) {
+    final touchedSpot = response?.touchedSpot;
+    final nextIndex = event.isInterestedForInteractions &&
+            touchedSpot != null &&
+            touchedSpot.spotIndex >= 0 &&
+            touchedSpot.spotIndex < visibleLength
+        ? touchedSpot.spotIndex
+        : null;
+    if (_touchedIndex == nextIndex) return;
+    setState(() => _touchedIndex = nextIndex);
+  }
+
+  _KLinePointWithMa? _selectedKLinePoint(List<_KLinePointWithMa> visible) {
+    final index = _touchedIndex;
+    if (index == null || index < 0 || index >= visible.length) return null;
+    return visible[index];
   }
 
   void _handlePointerUp(PointerUpEvent event) {
@@ -652,71 +670,119 @@ class _KLineVolumeChart extends StatelessWidget {
     required this.points,
     required this.maxY,
     required this.barWidth,
+    required this.selectedIndex,
   });
 
   final List<_KLinePointWithMa> points;
   final double maxY;
   final double barWidth;
+  final int? selectedIndex;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return BarChart(
-      BarChartData(
-        minY: 0,
-        maxY: maxY,
-        alignment: BarChartAlignment.spaceBetween,
-        groupsSpace: 0,
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        titlesData: FlTitlesData(
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 44,
-              maxIncluded: false,
-              minIncluded: false,
-              getTitlesWidget: (value, meta) {
-                if (value <= 0) return const SizedBox.shrink();
-                return Text(
-                  _compactVolume(value),
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                  ),
-                );
-              },
+    final selected = selectedIndex != null &&
+            selectedIndex! >= 0 &&
+            selectedIndex! < points.length
+        ? points[selectedIndex!]
+        : null;
+    return Stack(
+      children: [
+        BarChart(
+          BarChartData(
+            minY: 0,
+            maxY: maxY,
+            alignment: BarChartAlignment.spaceBetween,
+            groupsSpace: 0,
+            gridData: const FlGridData(show: false),
+            borderData: FlBorderData(show: false),
+            titlesData: FlTitlesData(
+              leftTitles:
+                  const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              topTitles:
+                  const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              bottomTitles:
+                  const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              rightTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 44,
+                  maxIncluded: false,
+                  minIncluded: false,
+                  getTitlesWidget: (value, meta) {
+                    if (value <= 0) return const SizedBox.shrink();
+                    return Text(
+                      _compactVolume(value),
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            barTouchData: const BarTouchData(enabled: false),
+            barGroups: [
+              for (var i = 0; i < points.length; i++)
+                BarChartGroupData(
+                  x: i,
+                  barRods: [
+                    BarChartRodData(
+                      toY: math.max(0, points[i].point.volume),
+                      width: selectedIndex == i ? barWidth * 1.28 : barWidth,
+                      color: _trendColor(
+                        points[i].point.close >= points[i].point.open,
+                      ).withValues(alpha: selectedIndex == i ? 0.72 : 0.38),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(1.5),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        ),
+        if (selectedIndex != null)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _VerticalIndexGuidePainter(
+                  index: selectedIndex!,
+                  count: points.length,
+                  color: scheme.outline.withValues(alpha: 0.42),
+                  rightReservedSize: 44,
+                ),
+              ),
             ),
           ),
-        ),
-        barTouchData: const BarTouchData(enabled: false),
-        barGroups: [
-          for (var i = 0; i < points.length; i++)
-            BarChartGroupData(
-              x: i,
-              barRods: [
-                BarChartRodData(
-                  toY: math.max(0, points[i].point.volume),
-                  width: barWidth,
-                  color:
-                      _trendColor(points[i].point.close >= points[i].point.open)
-                          .withValues(alpha: 0.38),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(1.5)),
+        if (selected != null)
+          Positioned(
+            left: 4,
+            top: 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.82),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppPalette.slate200),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                child: Text(
+                  '量 ${_compactVolume(selected.point.volume)}',
+                  style: const TextStyle(
+                    color: AppPalette.slate500,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ],
+              ),
             ),
-        ],
-      ),
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
+          ),
+      ],
     );
   }
 }
@@ -739,25 +805,104 @@ class _KLinePointWithMa {
   final double? ma60;
 }
 
-class _MaLegend extends StatelessWidget {
-  const _MaLegend({
+class _MaLegendStrip extends StatelessWidget {
+  const _MaLegendStrip({required this.item});
+
+  final _KLinePointWithMa? item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 7,
+      runSpacing: 2,
+      children: [
+        _MaLegendText(
+          label: 'MA5',
+          value: item?.ma5,
+          color: const Color(0xFFF59E0B),
+        ),
+        _MaLegendText(
+          label: 'MA10',
+          value: item?.ma10,
+          color: const Color(0xFF3B82F6),
+        ),
+        _MaLegendText(
+          label: 'MA20',
+          value: item?.ma20,
+          color: const Color(0xFFA855F7),
+        ),
+        _MaLegendText(
+          label: 'MA30',
+          value: item?.ma30,
+          color: const Color(0xFF22C55E),
+        ),
+        _MaLegendText(
+          label: 'MA60',
+          value: item?.ma60,
+          color: const Color(0xFF94A3B8),
+        ),
+      ],
+    );
+  }
+}
+
+class _MaLegendText extends StatelessWidget {
+  const _MaLegendText({
     required this.label,
+    required this.value,
     required this.color,
   });
 
   final String label;
+  final double? value;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
+    final suffix =
+        value == null || value! <= 0 ? '' : ' ${value!.toStringAsFixed(2)}';
     return Text(
-      label,
+      '$label$suffix',
       style: TextStyle(
         color: color,
-        fontSize: 10,
+        fontSize: 9.5,
         fontWeight: FontWeight.w900,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
+  }
+}
+
+class _VerticalIndexGuidePainter extends CustomPainter {
+  const _VerticalIndexGuidePainter({
+    required this.index,
+    required this.count,
+    required this.color,
+    required this.rightReservedSize,
+  });
+
+  final int index;
+  final int count;
+  final Color color;
+  final double rightReservedSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (count <= 0 || index < 0 || index >= count) return;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 0.9;
+    final plotWidth = math.max(0.0, size.width - rightReservedSize);
+    final x = count <= 1 ? plotWidth / 2 : plotWidth * index / (count - 1);
+    canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _VerticalIndexGuidePainter oldDelegate) {
+    return oldDelegate.index != index ||
+        oldDelegate.count != count ||
+        oldDelegate.color != color ||
+        oldDelegate.rightReservedSize != rightReservedSize;
   }
 }
 
