@@ -244,7 +244,33 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
     BoxConstraints constraints,
   ) {
     final chartHeight = _chartPanelHeight(constraints.maxHeight);
+    if (constraints.maxHeight >= 760 && constraints.maxWidth >= 360) {
+      return Column(
+        key: const ValueKey('detail-fixed-layout'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DetailHeader(
+            stock: stock,
+            symbol: symbol,
+            trendColor: trendColor,
+          ),
+          _StatsGrid(
+            stock: stock,
+            horizontalPadding: AppSpacing.md,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: _buildChartCard(context, stock),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+      );
+    }
     return SingleChildScrollView(
+      key: const ValueKey('detail-scroll-layout'),
       controller: _scrollController,
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
@@ -258,8 +284,11 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
               symbol: symbol,
               trendColor: trendColor,
             ),
-            _StatsGrid(stock: stock),
-            const SizedBox(height: AppSpacing.md),
+            _StatsGrid(
+              stock: stock,
+              horizontalPadding: AppSpacing.md,
+            ),
+            const SizedBox(height: AppSpacing.sm),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
               child: SizedBox(
@@ -331,6 +360,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
         boxShadow: AppShadows.card(elevated: true),
       ),
       child: ClipRRect(
+        key: const ValueKey('detail-chart-card'),
         borderRadius: BorderRadius.circular(AppRadii.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -578,6 +608,7 @@ class _DetailHeader extends StatelessWidget {
 
     if (!isDesktop) {
       final mobilePanel = Container(
+        key: const ValueKey('detail-header'),
         decoration: BoxDecoration(
           color: colors.surfaceGlass,
           borderRadius: BorderRadius.circular(AppRadii.xl),
@@ -602,74 +633,13 @@ class _DetailHeader extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(17, 13, 14, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(17, 14, 14, 14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  identity,
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          price,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineMedium
-                              ?.copyWith(
-                            color: trendColor,
-                            fontSize: 34,
-                            height: 1,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.9,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures(),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _TrendChip(stock: stock, color: trendColor),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Divider(height: 1, color: colors.borderSubtle),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _HeaderMiniMetric(
-                          label: '昨收',
-                          value: formatPrice(
-                            stock.preClose,
-                            type: stock.type,
-                            symbol: symbol,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: _HeaderMiniMetric(
-                          label: '今开',
-                          value: formatPrice(
-                            stock.open,
-                            type: stock.type,
-                            symbol: symbol,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: _HeaderMiniMetric(
-                          label: '日内区间',
-                          value:
-                              '${formatPrice(stock.low, type: stock.type)}–${formatPrice(stock.high, type: stock.type)}',
-                          alignEnd: true,
-                        ),
-                      ),
-                    ],
-                  ),
+                  Expanded(child: identity),
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(child: quote),
                 ],
               ),
             ),
@@ -681,7 +651,7 @@ class _DetailHeader extends StatelessWidget {
           AppSpacing.md,
           AppSpacing.xs,
           AppSpacing.md,
-          AppSpacing.md,
+          AppSpacing.sm,
         ),
         child: Column(
           children: [
@@ -738,52 +708,6 @@ class _DetailHeader extends StatelessWidget {
     );
 
     return panel;
-  }
-}
-
-class _HeaderMiniMetric extends StatelessWidget {
-  const _HeaderMiniMetric({
-    required this.label,
-    required this.value,
-    this.alignEnd = false,
-  });
-
-  final String label;
-  final String value;
-  final bool alignEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Column(
-      crossAxisAlignment:
-          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: colors.textTertiary,
-            fontSize: 9.5,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 3),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
-          child: Text(
-            value,
-            maxLines: 1,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w900,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ],
-    );
   }
 }
 

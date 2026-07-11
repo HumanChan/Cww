@@ -4,8 +4,6 @@
 .packages
 build/
 coverage/
-pubspec.lock
-
 android/.gradle/
 android/app/debug/
 android/app/profile/

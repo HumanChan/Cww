@@ -73,7 +73,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    const snapshot = MarketIndexSnapshot(
+    final snapshot = MarketIndexSnapshot(
       index: Stock(
         code: '000001',
         name: '上证指数',
@@ -92,6 +92,9 @@ void main() {
       advancing: 1542,
       unchanged: 40,
       declining: 763,
+      limitUp: 68,
+      limitDown: 7,
+      tradingDate: DateTime(2026, 7, 10),
     );
 
     await tester.pumpWidget(
@@ -101,7 +104,7 @@ void main() {
             _WidgetTestMarketRepository(),
           ),
         ],
-        child: const MaterialApp(
+        child: MaterialApp(
           home: Scaffold(
             body: Padding(
               padding: EdgeInsets.all(16),
@@ -117,10 +120,17 @@ void main() {
       ),
     );
     await tester.tap(find.byKey(const ValueKey('index-1.000001')));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
 
     expect(find.text('今日行情'), findsOneWidget);
     expect(find.text('市场涨跌分布'), findsOneWidget);
+    expect(find.byKey(const ValueKey('index-intraday-chart')), findsOneWidget);
+    expect(find.text('MA5'), findsOneWidget);
+    expect(find.text('领先'), findsOneWidget);
+    expect(find.text('涨停'), findsOneWidget);
+    expect(find.text('跌停'), findsOneWidget);
+    expect(find.text('68'), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
@@ -145,6 +155,28 @@ class _WidgetTestMarketRepository extends MarketRepository {
         ChartPoint(time: '09:30', price: 4030),
         ChartPoint(time: '15:00', price: 3996.16),
       ],
+    );
+  }
+
+  @override
+  Future<ChartData> fetchIndexChart(
+    Stock index, {
+    bool forceRefresh = false,
+  }) async {
+    return ChartData(
+      type: ChartType.intraday,
+      intraday: List.generate(12, (position) {
+        return ChartPoint(
+          time: position == 0
+              ? '09:30'
+              : position == 11
+                  ? '15:00'
+                  : '10:${position.toString().padLeft(2, '0')}',
+          price: 4030 - position * 3,
+          volume: 10000 + position * 200,
+          leading: 4028 - position * 2.7,
+        );
+      }),
     );
   }
 }

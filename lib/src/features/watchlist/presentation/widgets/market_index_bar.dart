@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_tokens.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../chart/presentation/stock_chart_panel.dart';
 import '../../../market/data/market_repository.dart';
 import '../../../market/domain/chart_models.dart';
 import '../../../market/domain/market_index_snapshot.dart';
@@ -171,12 +172,14 @@ class _IndexSegment extends StatelessWidget {
               horizontal: compact ? 8 : AppSpacing.md,
               vertical: 8,
             ),
-            child: compact
-                ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Row(
                         children: [
                           Flexible(
                             child: Text(
@@ -185,9 +188,10 @@ class _IndexSegment extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context)
                                   .textTheme
-                                  .labelSmall
+                                  .labelMedium
                                   ?.copyWith(
                                     color: colors.textSecondary,
+                                    fontSize: compact ? 10.5 : 12,
                                     fontWeight: FontWeight.w800,
                                   ),
                             ),
@@ -196,125 +200,40 @@ class _IndexSegment extends StatelessWidget {
                             const SizedBox(width: 3),
                             Icon(
                               Icons.schedule_rounded,
-                              size: 10,
-                              color: colors.warning,
+                              size: 9,
+                              color: colors.warning.withValues(alpha: 0.78),
                             ),
                           ],
                         ],
                       ),
-                      const SizedBox(height: 3),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          '${formatPrice(stock.price)}  ${formatSignedPercent(stock.percent)}',
-                          style: TextStyle(
-                            color: trendColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      formatSignedPercent(stock.percent),
+                      style: TextStyle(
+                        color: trendColor,
+                        fontSize: compact ? 11 : 12.5,
+                        fontWeight: FontWeight.w900,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: trendColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(AppRadii.sm),
-                        ),
-                        child: SizedBox.square(
-                          dimension: 36,
-                          child: Icon(
-                            Icons.show_chart_rounded,
-                            color: trendColor,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    stock.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(
-                                          color: colors.textSecondary,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                  ),
-                                ),
-                                if (snapshot.isStale) ...[
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    '暂未更新',
-                                    style: TextStyle(
-                                      color: colors.warning,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              formatPrice(stock.price),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                color: colors.textPrimary,
-                                fontWeight: FontWeight.w900,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            formatSignedPercent(stock.percent),
-                            style: TextStyle(
-                              color: trendColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            _formatSigned(stock.change),
-                            style: TextStyle(
-                              color: trendColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: colors.textTertiary,
-                        size: 19,
-                      ),
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  formatPrice(stock.price),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: compact ? 13 : 15,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -348,9 +267,8 @@ class _IndexDetailSheetState extends ConsumerState<_IndexDetailSheet> {
   @override
   void initState() {
     super.initState();
-    _chart = ref.read(marketRepositoryProvider).fetchChart(
+    _chart = ref.read(marketRepositoryProvider).fetchIndexChart(
           widget.snapshot.index,
-          ChartType.intraday,
         );
   }
 
@@ -385,7 +303,7 @@ class _IndexDetailSheetState extends ConsumerState<_IndexDetailSheet> {
 
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.82,
+      initialChildSize: 0.90,
       minChildSize: 0.62,
       maxChildSize: 0.94,
       builder: (context, scrollController) {
@@ -521,18 +439,17 @@ class _IndexDetailSheetState extends ConsumerState<_IndexDetailSheet> {
                         ),
                         const SizedBox(height: AppSpacing.sm),
                         SizedBox(
-                          height: 104,
+                          key: const ValueKey('index-intraday-chart'),
+                          height: 224,
                           child: FutureBuilder<ChartData>(
                             future: _chart,
                             builder: (context, chart) {
                               if (chart.hasData &&
                                   chart.data!.intraday.length > 1) {
-                                return CustomPaint(
-                                  painter: _MiniChartPainter(
-                                    chart.data!.intraday,
-                                    trendColor,
-                                  ),
-                                  size: Size.infinite,
+                                return StockChartPanel(
+                                  stock: stock,
+                                  data: chart.data!,
+                                  isMarketIndex: true,
                                 );
                               }
                               if (chart.hasError) {
@@ -788,6 +705,77 @@ class _MarketBreadthPanel extends StatelessWidget {
               ),
             ),
           ),
+          if (snapshot.index.market == Market.cn) ...[
+            const SizedBox(height: AppSpacing.md),
+            Divider(height: 1, color: colors.borderSubtle),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: _LimitStat(
+                    label: '涨停',
+                    value: snapshot.limitUp,
+                    color: colors.gain,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _LimitStat(
+                    label: '跌停',
+                    value: snapshot.limitDown,
+                    color: colors.loss,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LimitStat extends StatelessWidget {
+  const _LimitStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final int? value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: colors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value?.toString() ?? '--',
+            style: TextStyle(
+              color: value == null ? colors.textTertiary : color,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
         ],
       ),
     );
@@ -843,47 +831,6 @@ class _BreadthLegend extends StatelessWidget {
       ],
     );
   }
-}
-
-class _MiniChartPainter extends CustomPainter {
-  const _MiniChartPainter(this.points, this.color);
-  final List<ChartPoint> points;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final prices = points
-        .map((point) => point.price)
-        .where((price) => price.isFinite)
-        .toList();
-    if (prices.length < 2) return;
-    final minPrice = prices.reduce(math.min);
-    final maxPrice = prices.reduce(math.max);
-    final spread = math.max(maxPrice - minPrice, maxPrice.abs() * 0.002);
-    final path = Path();
-    for (var i = 0; i < prices.length; i++) {
-      final x = 10 + (size.width - 20) * i / (prices.length - 1);
-      final y = 9 + (size.height - 18) * (1 - (prices[i] - minPrice) / spread);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _MiniChartPainter oldDelegate) =>
-      oldDelegate.points != points || oldDelegate.color != color;
 }
 
 double? _rangePosition(Stock stock) {

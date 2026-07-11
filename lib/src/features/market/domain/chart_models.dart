@@ -21,12 +21,14 @@ class ChartPoint {
     required this.time,
     required this.price,
     this.avg,
+    this.leading,
     this.volume,
   });
 
   final String time;
   final double price;
   final double? avg;
+  final double? leading;
   final double? volume;
 }
 

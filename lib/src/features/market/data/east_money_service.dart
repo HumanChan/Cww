@@ -7,6 +7,7 @@ import '../domain/market_index_snapshot.dart';
 import '../domain/stock.dart';
 
 const _eastMoneyQuoteToken = 'fa5fd1943c7b386f172d6893dbfba10b';
+const _eastMoneyPoolToken = '7eea3edcaed734bea9cbfc24409ed989';
 const _stockDepthFields = 'f11,f12,f13,f14,f15,f16,f17,f18,f19,f20,'
     'f31,f32,f33,f34,f35,f36,f37,f38,f39,f40,'
     'f59,f60,f152,f191,f192,f531,f532';
@@ -147,7 +148,7 @@ class EastMoneyService {
   ) async {
     if (indexes.isEmpty) return [];
     const fields =
-        'f12,f13,f14,f2,f3,f4,f5,f6,f10,f15,f16,f17,f18,f104,f105,f106,f124';
+        'f12,f13,f14,f2,f3,f4,f5,f6,f10,f15,f16,f17,f18,f104,f105,f106,f124,f297';
     final queryParameters = {
       'secids': indexes.map((index) => index.secid).join(','),
       'fields': fields,
@@ -199,6 +200,7 @@ class EastMoneyService {
           unchanged != null &&
           (advancing > 0 || declining > 0 || unchanged > 0);
       final updatedSeconds = _safeInt(item['f124']);
+      final tradingDate = _parseTradingDate(item['f297']);
       final index = template.copyWith(
         name: template.name.isEmpty
             ? item['f14']?.toString() ?? template.code
@@ -219,6 +221,7 @@ class EastMoneyService {
         advancing: hasBreadth ? advancing : null,
         declining: hasBreadth ? declining : null,
         unchanged: hasBreadth ? unchanged : null,
+        tradingDate: tradingDate,
         updatedAt: updatedSeconds == null || updatedSeconds <= 0
             ? DateTime.now()
             : DateTime.fromMillisecondsSinceEpoch(updatedSeconds * 1000),
@@ -246,8 +249,11 @@ class EastMoneyService {
     return _stockDepthFromRealtime(data);
   }
 
-  Future<List<ChartPoint>> getIntradayChart(String secid) async {
-    const fields = 'f51,f53,f58,f55';
+  Future<List<ChartPoint>> getIntradayChart(
+    String secid, {
+    bool isIndex = false,
+  }) async {
+    const fields = 'f51,f53,f56,f58';
     final queryParameters = {
       'secid': secid,
       'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
@@ -286,11 +292,41 @@ class EastMoneyService {
             time: time,
             price: _safeDouble(values[1]) ?? 0,
             volume: _safeDouble(values[2]) ?? 0,
-            avg: _safeDouble(values[3]) ?? 0,
+            avg: isIndex ? null : _safeDouble(values[3]),
+            leading: isIndex ? _safeDouble(values[3]) : null,
           );
         })
         .where((point) => point.time.isNotEmpty && point.price > 0)
         .toList();
+  }
+
+  Future<MarketLimitStats> getMarketLimitStats(DateTime tradingDate) async {
+    final date = '${tradingDate.year.toString().padLeft(4, '0')}'
+        '${tradingDate.month.toString().padLeft(2, '0')}'
+        '${tradingDate.day.toString().padLeft(2, '0')}';
+
+    Future<int?> fetchCount(String endpoint) async {
+      final response = await _dio.get<dynamic>(
+        'https://push2ex.eastmoney.com/$endpoint',
+        queryParameters: {
+          'ut': _eastMoneyPoolToken,
+          'dpt': 'wz.ztzt',
+          'Pageindex': 0,
+          'pagesize': 1,
+          'sort': 'fbt:asc',
+          'date': date,
+        },
+      );
+      final root = _asMap(response.data);
+      final data = root['data'];
+      return data is Map ? _safeInt(data['tc']) : null;
+    }
+
+    final counts = await Future.wait([
+      fetchCount('getTopicZTPool'),
+      fetchCount('getTopicDTPool'),
+    ]);
+    return MarketLimitStats(limitUp: counts[0], limitDown: counts[1]);
   }
 
   Future<List<KLinePoint>> getKLineChart(String secid, ChartType type) async {
@@ -450,6 +486,16 @@ int? _safeInt(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value.toString());
+}
+
+DateTime? _parseTradingDate(Object? value) {
+  final raw = value?.toString() ?? '';
+  if (raw.length != 8) return null;
+  final year = int.tryParse(raw.substring(0, 4));
+  final month = int.tryParse(raw.substring(4, 6));
+  final day = int.tryParse(raw.substring(6, 8));
+  if (year == null || month == null || day == null) return null;
+  return DateTime(year, month, day);
 }
 
 T? _at<T>(List<T> values, int index) {

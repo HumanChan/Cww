@@ -15,6 +15,74 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_chart/fl_chart.dart';
 
 void main() {
+  testWidgets('390x844 详情首屏展示报价、8 项概览和完整图表', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          marketRepositoryProvider.overrideWithValue(_FakeMarketRepository()),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const StockDetailScreen(
+            stock: _FakeMarketRepository.stock,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('detail-fixed-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('detail-scroll-layout')), findsNothing);
+    expect(find.byKey(const ValueKey('detail-header')), findsOneWidget);
+    for (final label in const [
+      '昨收',
+      '今开',
+      '最高',
+      '最低',
+      '振幅',
+      '量比',
+      '成交额',
+      '换手率',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    final chart = find.byKey(const ValueKey('detail-chart-card'));
+    expect(chart, findsOneWidget);
+    expect(tester.getBottomRight(chart).dy, lessThanOrEqualTo(844));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('375x667 详情安全降级为可滚动布局', (tester) async {
+    tester.view.physicalSize = const Size(375, 667);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          marketRepositoryProvider.overrideWithValue(_FakeMarketRepository()),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const StockDetailScreen(
+            stock: _FakeMarketRepository.stock,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('detail-scroll-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('detail-fixed-layout')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('详情页没有返回按钮并支持从左侧右滑返回', (tester) async {
     final repository = _FakeMarketRepository();
 

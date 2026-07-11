@@ -34,9 +34,11 @@ class MarketRepository {
     required EastMoneyService eastMoney,
     required BinanceService binance,
     required YahooFinanceService yahoo,
+    DateTime Function()? now,
   })  : _eastMoney = eastMoney,
         _binance = binance,
-        _yahoo = yahoo;
+        _yahoo = yahoo,
+        _now = now ?? DateTime.now;
 
   static const _groupsKey = 'stock_groups';
   static const _activeGroupIdKey = 'active_group_id';
@@ -45,7 +47,13 @@ class MarketRepository {
   final EastMoneyService _eastMoney;
   final BinanceService _binance;
   final YahooFinanceService _yahoo;
+  final DateTime Function() _now;
   final Map<String, ({DateTime createdAt, ChartData data})> _chartCache = {};
+  ({
+    DateTime createdAt,
+    DateTime tradingDate,
+    MarketLimitStats data
+  })? _limitStatsCache;
 
   static const Map<Market, List<Stock>> marketIndexes = {
     Market.cn: [
@@ -73,13 +81,55 @@ class MarketRepository {
     final indexes = marketIndexes[market];
     if (indexes == null) return const [];
     final snapshots = await _eastMoney.getIndexSnapshots(indexes);
+    MarketLimitStats? limitStats;
+    if (market == Market.cn && snapshots.isNotEmpty) {
+      final tradingDate = snapshots
+          .map((snapshot) => snapshot.tradingDate)
+          .whereType<DateTime>()
+          .firstOrNull;
+      if (tradingDate != null) {
+        limitStats = await _fetchLimitStats(tradingDate);
+      }
+    }
     final bySecid = {
-      for (final snapshot in snapshots) snapshot.index.secid: snapshot,
+      for (final snapshot in snapshots)
+        snapshot.index.secid: limitStats == null
+            ? snapshot
+            : snapshot.copyWith(
+                limitUp: limitStats.limitUp,
+                limitDown: limitStats.limitDown,
+              ),
     };
     return indexes
         .map((index) => bySecid[index.secid])
         .whereType<MarketIndexSnapshot>()
         .toList();
+  }
+
+  Future<MarketLimitStats?> _fetchLimitStats(DateTime tradingDate) async {
+    final cached = _limitStatsCache;
+    final sameDay = cached != null &&
+        cached.tradingDate.year == tradingDate.year &&
+        cached.tradingDate.month == tradingDate.month &&
+        cached.tradingDate.day == tradingDate.day;
+    if (sameDay &&
+        _now().difference(cached.createdAt) < const Duration(seconds: 60)) {
+      return cached.data;
+    }
+    try {
+      final data = await _eastMoney.getMarketLimitStats(tradingDate);
+      if (data.hasData) {
+        _limitStatsCache = (
+          createdAt: _now(),
+          tradingDate: tradingDate,
+          data: data,
+        );
+        return data;
+      }
+    } catch (_) {
+      // Keep the latest successful market breadth snapshot on transient errors.
+    }
+    return sameDay ? cached.data : null;
   }
 
   List<StockGroup> get defaultGroups => const [
@@ -413,6 +463,29 @@ class MarketRepository {
         kLine: await _eastMoney.getKLineChart(resolvedStock.secid, type),
       );
     }
+    _chartCache[cacheKey] = (createdAt: DateTime.now(), data: data);
+    return data;
+  }
+
+  Future<ChartData> fetchIndexChart(
+    Stock index, {
+    bool forceRefresh = false,
+  }) async {
+    final cacheKey = 'index:${index.secid}:${ChartType.intraday.name}';
+    final cached = _chartCache[cacheKey];
+    if (!forceRefresh &&
+        cached != null &&
+        DateTime.now().difference(cached.createdAt) <
+            const Duration(seconds: 30)) {
+      return cached.data;
+    }
+    final data = ChartData(
+      type: ChartType.intraday,
+      intraday: await _eastMoney.getIntradayChart(
+        index.secid,
+        isIndex: true,
+      ),
+    );
     _chartCache[cacheKey] = (createdAt: DateTime.now(), data: data);
     return data;
   }

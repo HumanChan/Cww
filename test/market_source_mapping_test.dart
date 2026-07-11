@@ -77,6 +77,7 @@ void main() {
                       'f105': 1800,
                       'f106': 120,
                       'f124': 1700000000,
+                      'f297': '20260710',
                     },
                     {
                       'f12': 'HSI',
@@ -105,7 +106,129 @@ void main() {
 
     expect(snapshots.first.hasBreadth, isTrue);
     expect(snapshots.first.advancing, 3200);
+    expect(snapshots.first.tradingDate, DateTime(2026, 7, 10));
     expect(snapshots.last.hasBreadth, isFalse);
     expect(snapshots.last.advancing, isNull);
+  });
+
+  test('intraday fields map time, price, volume and semantic second line',
+      () async {
+    final requestedFields = <String>[];
+    final dio = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requestedFields.add(options.queryParameters['fields2'].toString());
+            handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'data': {
+                    'trends': [
+                      '2026-07-10 09:30,3500.10,12345,3499.80',
+                      '2026-07-10 09:31,3501.20,23456,3500.30',
+                    ],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+    final service = EastMoneyService(dio);
+
+    final stockPoints = await service.getIntradayChart('1.600000');
+    final indexPoints =
+        await service.getIntradayChart('1.000001', isIndex: true);
+
+    expect(requestedFields, everyElement('f51,f53,f56,f58'));
+    expect(stockPoints.first.time, '09:30');
+    expect(stockPoints.first.price, 3500.10);
+    expect(stockPoints.first.volume, 12345);
+    expect(stockPoints.first.avg, 3499.80);
+    expect(stockPoints.first.leading, isNull);
+    expect(indexPoints.first.avg, isNull);
+    expect(indexPoints.first.leading, 3499.80);
+  });
+
+  test('A-share limit counts cache for 60 seconds and survive refresh failure',
+      () async {
+    var now = DateTime(2026, 7, 10, 15);
+    var poolRequests = 0;
+    final dio = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path.contains('Topic')) {
+              poolRequests++;
+              if (poolRequests > 2) {
+                handler.reject(
+                  DioException(
+                    requestOptions: options,
+                    type: DioExceptionType.connectionError,
+                  ),
+                );
+                return;
+              }
+              handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: {
+                    'data': {
+                      'tc': options.path.contains('ZTPool') ? 68 : 7,
+                    },
+                  },
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'data': {
+                    'diff': [
+                      for (final stock
+                          in MarketRepository.marketIndexes[Market.cn]!)
+                        {
+                          'f12': stock.code,
+                          'f13': stock.secid.startsWith('1.') ? 1 : 0,
+                          'f14': stock.name,
+                          'f2': 3500,
+                          'f3': 1,
+                          'f104': 3000,
+                          'f105': 2000,
+                          'f106': 100,
+                          'f297': '20260710',
+                        },
+                    ],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+    final repository = MarketRepository(
+      eastMoney: EastMoneyService(dio),
+      binance: BinanceService(dio),
+      yahoo: YahooFinanceService(dio),
+      now: () => now,
+    );
+
+    final first = await repository.fetchMarketIndexes(Market.cn);
+    final cached = await repository.fetchMarketIndexes(Market.cn);
+    now = now.add(const Duration(seconds: 61));
+    final staleFallback = await repository.fetchMarketIndexes(Market.cn);
+
+    expect(first.first.limitUp, 68);
+    expect(first.first.limitDown, 7);
+    expect(cached.first.limitUp, 68);
+    expect(staleFallback.first.limitUp, 68);
+    expect(staleFallback.first.limitDown, 7);
+    expect(poolRequests, 4);
   });
 }

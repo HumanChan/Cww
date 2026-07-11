@@ -558,8 +558,16 @@ class _StockQuote extends StatelessWidget {
   }
 }
 
-class _DragHandle extends StatelessWidget {
+class _DragHandle extends StatefulWidget {
   const _DragHandle();
+
+  @override
+  State<_DragHandle> createState() => _DragHandleState();
+}
+
+class _DragHandleState extends State<_DragHandle> {
+  bool _isHovering = false;
+  bool _isFocused = false;
 
   @override
   Widget build(BuildContext context) {
@@ -568,12 +576,21 @@ class _DragHandle extends StatelessWidget {
       message: '拖动排序',
       child: MouseRegion(
         cursor: SystemMouseCursors.grab,
-        child: SizedBox.square(
-          dimension: AppControlSizes.compact,
-          child: Icon(
-            Icons.drag_indicator_rounded,
-            color: colors.textTertiary.withValues(alpha: 0.72),
-            size: 20,
+        onEnter: (_) => setState(() => _isHovering = true),
+        onExit: (_) => setState(() => _isHovering = false),
+        child: FocusableActionDetector(
+          onShowFocusHighlight: (value) => setState(() => _isFocused = value),
+          child: AnimatedOpacity(
+            opacity: _isHovering || _isFocused ? 0.68 : 0.28,
+            duration: AppDurations.fast,
+            child: SizedBox.square(
+              dimension: AppControlSizes.compact,
+              child: Icon(
+                Icons.drag_handle_rounded,
+                color: colors.textTertiary,
+                size: 14,
+              ),
+            ),
           ),
         ),
       ),

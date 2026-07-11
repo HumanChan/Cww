@@ -12,12 +12,14 @@ class StockChartPanel extends StatelessWidget {
   const StockChartPanel({
     required this.stock,
     required this.data,
+    this.isMarketIndex = false,
     this.onRetry,
     super.key,
   });
 
   final Stock stock;
   final ChartData data;
+  final bool isMarketIndex;
   final VoidCallback? onRetry;
 
   @override
@@ -37,7 +39,11 @@ class StockChartPanel extends StatelessWidget {
         AppSpacing.md,
       ),
       child: data.type == ChartType.intraday
-          ? _IntradayLineChart(stock: stock, points: data.intraday)
+          ? _IntradayLineChart(
+              stock: stock,
+              points: data.intraday,
+              isMarketIndex: isMarketIndex,
+            )
           : _KLineCandlestickChart(points: data.kLine),
     );
   }
@@ -105,10 +111,12 @@ class _IntradayLineChart extends StatelessWidget {
   const _IntradayLineChart({
     required this.stock,
     required this.points,
+    required this.isMarketIndex,
   });
 
   final Stock stock;
   final List<ChartPoint> points;
+  final bool isMarketIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -126,24 +134,31 @@ class _IntradayLineChart extends StatelessWidget {
     final chartPoints = sessionPoints.isEmpty ? points : sessionPoints;
     final priceSpots = <FlSpot>[];
     final avgSpots = <FlSpot>[];
+    final leadingSpots = <FlSpot>[];
     for (var i = 0; i < chartPoints.length; i++) {
       final point = chartPoints[i];
       final x = session.xFor(point.time);
       priceSpots.add(FlSpot(x, point.price));
-      final avg = point.avg;
+      final avg =
+          isMarketIndex ? _rollingAverage(chartPoints, i, 5) : point.avg;
       if (avg != null && avg > 0) avgSpots.add(FlSpot(x, avg));
+      final leading = point.leading;
+      if (isMarketIndex && leading != null && leading > 0) {
+        leadingSpots.add(FlSpot(x, leading));
+      }
     }
 
     final values = [
       ...chartPoints.map((point) => point.price),
-      ...chartPoints.map((point) => point.avg).whereType<double>(),
+      ...avgSpots.map((spot) => spot.y),
+      ...leadingSpots.map((spot) => spot.y),
       if (stock.preClose != null) stock.preClose!,
     ].where((value) => value > 0).toList();
     final (minY, maxY) = _paddedDomain(values, 0.08);
     final preClose = stock.preClose;
     final middayBoundary = session.lunchBoundaryX;
 
-    return Stack(
+    final chart = Stack(
       fit: StackFit.expand,
       children: [
         Positioned.fill(
@@ -244,13 +259,21 @@ class _IntradayLineChart extends StatelessWidget {
                           spot.spotIndex.clamp(0, chartPoints.length - 1);
                       final point = chartPoints[index];
                       if (spot.barIndex != 0) return null;
-                      final avg = point.avg == null || point.avg! <= 0
+                      final average = isMarketIndex
+                          ? _rollingAverage(chartPoints, index, 5)
+                          : point.avg;
+                      final avg = average == null || average <= 0
                           ? '--'
-                          : point.avg!.toStringAsFixed(2);
+                          : average.toStringAsFixed(2);
+                      final leading =
+                          point.leading == null || point.leading! <= 0
+                              ? '--'
+                              : point.leading!.toStringAsFixed(2);
                       return LineTooltipItem(
                         '${session.displayTimeFor(point.time)}\n'
                         '价格 ${point.price.toStringAsFixed(2)}\n'
-                        '均价 $avg\n'
+                        '${isMarketIndex ? 'MA5' : '均价'} $avg\n'
+                        '${isMarketIndex ? '领先 $leading\n' : ''}'
                         '成交量 ${_compactVolume(point.volume ?? 0)}',
                         TextStyle(
                           color: scheme.onInverseSurface,
@@ -297,12 +320,99 @@ class _IntradayLineChart extends StatelessWidget {
                     preventCurveOverShooting: true,
                     dotData: const FlDotData(show: false),
                   ),
+                if (leadingSpots.length > 1)
+                  LineChartBarData(
+                    spots: leadingSpots,
+                    color: colors.ma20,
+                    barWidth: 1.35,
+                    isCurved: true,
+                    curveSmoothness: 0.12,
+                    preventCurveOverShooting: true,
+                    dotData: const FlDotData(show: false),
+                  ),
               ],
             ),
             duration: Duration.zero,
           ),
         ),
         _InlineYAxisLabels(minY: minY, maxY: maxY),
+      ],
+    );
+    if (!isMarketIndex) return chart;
+    return Column(
+      children: [
+        _IndexChartLegend(
+          priceColor: trendColor,
+          averageColor: colors.ma5,
+          leadingColor: colors.ma20,
+          showLeading: leadingSpots.length > 1,
+        ),
+        const SizedBox(height: 4),
+        Expanded(child: chart),
+      ],
+    );
+  }
+}
+
+class _IndexChartLegend extends StatelessWidget {
+  const _IndexChartLegend({
+    required this.priceColor,
+    required this.averageColor,
+    required this.leadingColor,
+    required this.showLeading,
+  });
+
+  final Color priceColor;
+  final Color averageColor;
+  final Color leadingColor;
+  final bool showLeading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        _ChartLegendItem(label: '指数', color: priceColor),
+        const SizedBox(width: 10),
+        _ChartLegendItem(label: 'MA5', color: averageColor),
+        if (showLeading) ...[
+          const SizedBox(width: 10),
+          _ChartLegendItem(label: '领先', color: leadingColor),
+        ],
+      ],
+    );
+  }
+}
+
+class _ChartLegendItem extends StatelessWidget {
+  const _ChartLegendItem({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 13,
+          height: 2,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(AppRadii.full),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: colors.textTertiary,
+            fontSize: 9.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ],
     );
   }
@@ -1231,6 +1341,15 @@ FlTitlesData _titlesData(
       ? maxValue.abs() * 0.02 + 1
       : (maxValue - minValue) * factor;
   return (minValue - padding, maxValue + padding);
+}
+
+double? _rollingAverage(List<ChartPoint> points, int index, int period) {
+  if (period <= 0 || index < period - 1 || index >= points.length) return null;
+  var sum = 0.0;
+  for (var offset = 0; offset < period; offset++) {
+    sum += points[index - offset].price;
+  }
+  return sum / period;
 }
 
 _TradingSession _tradingSessionFor(Stock stock, List<ChartPoint> points) {
