@@ -66,9 +66,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final mode = ref.watch(
-      watchlistControllerProvider.select((state) => state.searchMode),
-    );
     final query = ref.watch(
       watchlistControllerProvider.select((state) => state.searchQuery),
     );
@@ -97,49 +94,18 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
     _synchronizeText(query);
     _scheduleOverlaySync(query.trim().isNotEmpty);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final horizontal = constraints.maxWidth >= AppBreakpoints.medium;
-        final modeSwitcher = _SearchModeSwitcher(
-          selected: mode,
-          onSelected: _selectMode,
-        );
-        final searchField = _buildSearchAnchor(
-          context,
-          mode: mode,
-          query: query,
-          isSearching: isSearching,
-          results: results,
-          searchError: searchError,
-          activeCodes: activeCodes,
-        );
-
-        if (horizontal) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(width: 208, child: modeSwitcher),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(child: searchField),
-            ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            modeSwitcher,
-            const SizedBox(height: AppSpacing.sm),
-            searchField,
-          ],
-        );
-      },
+    return _buildSearchAnchor(
+      context,
+      query: query,
+      isSearching: isSearching,
+      results: results,
+      searchError: searchError,
+      activeCodes: activeCodes,
     );
   }
 
   Widget _buildSearchAnchor(
     BuildContext context, {
-    required SearchMode mode,
     required String query,
     required bool isSearching,
     required List<Stock> results,
@@ -162,7 +128,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                 followerAnchor: Alignment.topLeft,
                 offset: const Offset(0, AppSpacing.xs),
                 child: _SearchResultsOverlay(
-                  mode: mode,
                   query: query,
                   isSearching: isSearching,
                   results: results,
@@ -202,9 +167,7 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                   if (_textController.text.trim().isNotEmpty) _showOverlay();
                 },
                 decoration: InputDecoration(
-                  hintText: mode == SearchMode.stock
-                      ? '搜索股票、指数或 ETF'
-                      : '搜索加密货币，例如 BTC',
+                  hintText: '搜索股票、指数、ETF 或加密货币',
                   hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: colors.textTertiary,
                         fontWeight: FontWeight.w500,
@@ -290,15 +253,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
     if (unfocus) _focusNode.unfocus();
   }
 
-  void _selectMode(SearchMode mode) {
-    final current = ref.read(watchlistControllerProvider).searchMode;
-    if (current == mode) return;
-    _textController.clear();
-    _hideOverlay();
-    ref.read(watchlistControllerProvider.notifier).toggleSearchMode();
-    _focusNode.requestFocus();
-  }
-
   void _retrySearch() {
     final query = _textController.text;
     if (query.trim().isEmpty) return;
@@ -324,111 +278,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
       SnackBar(
         content: Text('已将 ${stock.name} 添加到当前分组'),
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-}
-
-class _SearchModeSwitcher extends StatelessWidget {
-  const _SearchModeSwitcher({
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final SearchMode selected;
-  final ValueChanged<SearchMode> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surfaceInteractive,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxs),
-        child: Row(
-          children: [
-            Expanded(
-              child: _SearchModeButton(
-                label: '股票',
-                icon: Icons.candlestick_chart_rounded,
-                selected: selected == SearchMode.stock,
-                onPressed: () => onSelected(SearchMode.stock),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.xxs),
-            Expanded(
-              child: _SearchModeButton(
-                label: '加密货币',
-                icon: Icons.currency_bitcoin_rounded,
-                selected: selected == SearchMode.crypto,
-                onPressed: () => onSelected(SearchMode.crypto),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchModeButton extends StatelessWidget {
-  const _SearchModeButton({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Material(
-      color: selected ? colors.surface : Colors.transparent,
-      borderRadius: BorderRadius.circular(AppRadii.sm),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        hoverColor: selected ? colors.surfaceRaised : colors.surfaceInteractive,
-        focusColor: colors.brandSoft,
-        child: SizedBox(
-          height: AppControlSizes.small,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 17,
-                  color: selected ? colors.brand : colors.textTertiary,
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: selected
-                              ? colors.textPrimary
-                              : colors.textSecondary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -478,7 +327,6 @@ class _SearchFieldSuffix extends StatelessWidget {
 
 class _SearchResultsOverlay extends StatelessWidget {
   const _SearchResultsOverlay({
-    required this.mode,
     required this.query,
     required this.isSearching,
     required this.results,
@@ -488,7 +336,6 @@ class _SearchResultsOverlay extends StatelessWidget {
     required this.onSelect,
   });
 
-  final SearchMode mode;
   final String query;
   final bool isSearching;
   final List<Stock> results;
@@ -567,7 +414,7 @@ class _SearchResultsOverlay extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${mode.label}搜索结果',
+                  '搜索结果',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: colors.textPrimary,
                         fontWeight: FontWeight.w800,

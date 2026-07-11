@@ -309,8 +309,18 @@ class WatchlistController extends StateNotifier<WatchlistState> {
 
   Future<void> _runSearch(String query) async {
     try {
-      final results =
-          await _repository.search(query, state.searchMode.stockType);
+      final resultGroups = await Future.wait<List<Stock>>([
+        _repository.search(query, StockType.stock).catchError((_) => <Stock>[]),
+        _repository
+            .search(query, StockType.crypto)
+            .catchError((_) => <Stock>[]),
+      ]);
+      final seen = <String>{};
+      final results = resultGroups
+          .expand((items) => items)
+          .where((stock) => seen.add('${stock.type.name}:${stock.secid}'))
+          .take(24)
+          .toList();
       if (_isDisposed || query != state.searchQuery) return;
       state = state.copyWith(
         searchResults: results,
@@ -386,7 +396,7 @@ class WatchlistController extends StateNotifier<WatchlistState> {
     _pollTimer?.cancel();
     if (!_pollingEnabled || _isDisposed) return;
     _pollTimer =
-        Timer(immediate ? Duration.zero : const Duration(seconds: 1), () {
+        Timer(immediate ? Duration.zero : const Duration(seconds: 5), () {
       unawaited(_refreshQuotes());
     });
   }

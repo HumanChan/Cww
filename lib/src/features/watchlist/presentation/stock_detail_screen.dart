@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,11 +27,25 @@ class StockDetailScreen extends ConsumerStatefulWidget {
 class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   ChartType _chartType = ChartType.intraday;
   late Future<ChartData> _chartFuture;
+  Timer? _chartRefreshTimer;
+  bool _chartRefreshInFlight = false;
+  double? _edgeSwipeStartX;
+  double _edgeSwipeDistance = 0;
 
   @override
   void initState() {
     super.initState();
     _chartFuture = _loadChart();
+    _chartRefreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _refreshIntradayChart(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _chartRefreshTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -39,48 +56,124 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
     final colors = context.appColors;
     final trendColor = _stockTrendColor(stock, colors);
     final symbol = currencySymbol(stock);
+    final swipeProgress = (_edgeSwipeDistance / 180).clamp(0.0, 1.0);
 
-    return Scaffold(
-      backgroundColor: colors.canvas,
-      body: DecoratedBox(
+    final page = Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (event) {
+        if (event.position.dx > 44) return;
+        setState(() {
+          _edgeSwipeStartX = event.position.dx;
+          _edgeSwipeDistance = 0;
+        });
+      },
+      onPointerMove: (event) {
+        final startX = _edgeSwipeStartX;
+        if (startX == null) return;
+        setState(() {
+          _edgeSwipeDistance =
+              (event.position.dx - startX).clamp(0, 180).toDouble();
+        });
+      },
+      onPointerUp: (_) => _finishEdgeSwipe(),
+      onPointerCancel: (_) => _resetEdgeSwipe(),
+      child: DecoratedBox(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              colors.brandSoft.withValues(alpha: 0.46),
-              colors.canvas,
-              colors.canvas,
-            ],
-            stops: const [0, 0.36, 1],
-          ),
+          boxShadow: _edgeSwipeDistance <= 0
+              ? const []
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.16),
+                    blurRadius: 24,
+                    offset: const Offset(0, -8),
+                  ),
+                ],
         ),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isDesktop =
-                  constraints.maxWidth >= AppBreakpoints.desktop &&
-                      constraints.maxHeight >= 520;
-              return isDesktop
-                  ? _buildDesktopLayout(
-                      context,
-                      stock,
-                      symbol,
-                      trendColor,
-                      constraints,
-                    )
-                  : _buildCompactLayout(
-                      context,
-                      stock,
-                      symbol,
-                      trendColor,
-                      constraints,
-                    );
-            },
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: [
+                colors.brandSoft.withValues(alpha: 0.46),
+                colors.canvas,
+                colors.canvas,
+              ],
+              stops: const [0, 0.36, 1],
+            ),
+          ),
+          child: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isDesktop =
+                    constraints.maxWidth >= AppBreakpoints.desktop &&
+                        constraints.maxHeight >= 520;
+                return isDesktop
+                    ? _buildDesktopLayout(
+                        context,
+                        stock,
+                        symbol,
+                        trendColor,
+                        constraints,
+                      )
+                    : _buildCompactLayout(
+                        context,
+                        stock,
+                        symbol,
+                        trendColor,
+                        constraints,
+                      );
+              },
+            ),
           ),
         ),
       ),
     );
+
+    return Scaffold(
+      backgroundColor: colors.surfaceInteractive,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: colors.surfaceInteractive),
+          AnimatedSlide(
+            duration: _edgeSwipeStartX == null
+                ? const Duration(milliseconds: 180)
+                : Duration.zero,
+            curve: Curves.easeOutCubic,
+            offset: Offset(0, swipeProgress * 0.055),
+            child: AnimatedScale(
+              duration: _edgeSwipeStartX == null
+                  ? const Duration(milliseconds: 180)
+                  : Duration.zero,
+              curve: Curves.easeOutCubic,
+              scale: 1 - swipeProgress * 0.035,
+              alignment: Alignment.bottomCenter,
+              child: page,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _finishEdgeSwipe() {
+    final shouldPop = _edgeSwipeStartX != null && _edgeSwipeDistance >= 64;
+    final navigator = Navigator.of(context);
+    if (shouldPop && navigator.canPop()) {
+      _edgeSwipeStartX = null;
+      navigator.pop();
+      return;
+    }
+    _resetEdgeSwipe();
+  }
+
+  void _resetEdgeSwipe() {
+    if (!mounted) return;
+    setState(() {
+      _edgeSwipeStartX = null;
+      _edgeSwipeDistance = 0;
+    });
   }
 
   Widget _buildCompactLayout(
@@ -103,10 +196,9 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
               stock: stock,
               symbol: symbol,
               trendColor: trendColor,
-              onBack: () => Navigator.of(context).pop(),
             ),
             _StatsGrid(stock: stock),
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.md),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
               child: SizedBox(
@@ -135,7 +227,6 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
             stock: stock,
             symbol: symbol,
             trendColor: trendColor,
-            onBack: () => Navigator.of(context).pop(),
             isDesktop: true,
           ),
           const SizedBox(height: AppSpacing.xl),
@@ -175,7 +266,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
         color: colors.surfaceRaised,
         borderRadius: BorderRadius.circular(AppRadii.xl),
         border: Border.all(color: colors.borderSubtle),
-        boxShadow: AppShadows.card(),
+        boxShadow: AppShadows.card(elevated: true),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadii.xl),
@@ -194,23 +285,35 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                   final title = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '行情走势',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '行情走势',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                                   color: colors.textPrimary,
                                   fontWeight: FontWeight.w700,
                                 ),
+                          ),
+                          if (_chartType == ChartType.intraday) ...[
+                            const SizedBox(width: AppSpacing.xs),
+                            const _ChartLiveBadge(),
+                          ],
+                        ],
                       ),
-                      const SizedBox(height: AppSpacing.xxs),
-                      Text(
-                        _chartType == ChartType.intraday
-                            ? '实时价格与均价走势'
-                            : '拖拽平移 · 滚轮缩放 · 双击复位',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.textTertiary,
-                            ),
-                      ),
+                      if (_chartType != ChartType.intraday) ...[
+                        const SizedBox(height: AppSpacing.xxs),
+                        Text(
+                          '拖拽平移 · 滚轮缩放 · 双击复位',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: colors.textTertiary,
+                                  ),
+                        ),
+                      ],
                     ],
                   );
                   final tabs = _ChartTabs(
@@ -277,18 +380,38 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   }
 
   void _retryChart() {
-    setState(() => _chartFuture = _loadChart());
+    setState(() => _chartFuture = _loadChart(forceRefresh: true));
   }
 
   double _chartPanelHeight(double viewportHeight) {
-    final minHeight = _chartType == ChartType.intraday ? 390.0 : 430.0;
-    final targetHeight = _chartType == ChartType.intraday ? 440.0 : 490.0;
-    return (viewportHeight - 300).clamp(minHeight, targetHeight).toDouble();
+    final minHeight = _chartType == ChartType.intraday ? 380.0 : 420.0;
+    final targetHeight = _chartType == ChartType.intraday ? 460.0 : 500.0;
+    return (viewportHeight - 250).clamp(minHeight, targetHeight).toDouble();
   }
 
-  Future<ChartData> _loadChart() {
+  Future<ChartData> _loadChart({bool forceRefresh = false}) {
     final stock = _latestStock(ref.read(watchlistControllerProvider));
-    return ref.read(marketRepositoryProvider).fetchChart(stock, _chartType);
+    return ref.read(marketRepositoryProvider).fetchChart(
+          stock,
+          _chartType,
+          forceRefresh: forceRefresh,
+        );
+  }
+
+  Future<void> _refreshIntradayChart() async {
+    if (!mounted || _chartType != ChartType.intraday || _chartRefreshInFlight) {
+      return;
+    }
+    _chartRefreshInFlight = true;
+    try {
+      final data = await _loadChart(forceRefresh: true);
+      if (!mounted || _chartType != ChartType.intraday) return;
+      setState(() => _chartFuture = SynchronousFuture(data));
+    } catch (_) {
+      // Keep the last successful chart visible during a transient refresh error.
+    } finally {
+      _chartRefreshInFlight = false;
+    }
   }
 
   Stock _latestStock(WatchlistState state) {
@@ -309,14 +432,12 @@ class _DetailHeader extends StatelessWidget {
     required this.stock,
     required this.symbol,
     required this.trendColor,
-    required this.onBack,
     this.isDesktop = false,
   });
 
   final Stock stock;
   final String symbol;
   final Color trendColor;
-  final VoidCallback onBack;
   final bool isDesktop;
 
   @override
@@ -324,8 +445,7 @@ class _DetailHeader extends StatelessWidget {
     final colors = context.appColors;
     final price = formatPrice(stock.price, type: stock.type, symbol: symbol);
     final identity = Column(
-      crossAxisAlignment:
-          isDesktop ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
@@ -334,97 +454,153 @@ class _DetailHeader extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 color: colors.textPrimary,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.2,
+                fontFamily: 'PingFang SC',
+                fontFamilyFallback: AppTypographyTokens.fontFamilyFallback,
+                fontSize: 22,
+                height: 1.05,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.65,
               ),
         ),
-        const SizedBox(height: AppSpacing.xxs),
+        const SizedBox(height: 5),
         Text(
           '${stock.code}  ·  ${marketDisplayName(stock)}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: colors.textTertiary,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
     );
-    final quote = Row(
+    final quote = Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Flexible(
-          child: Text(
-            price,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(
-              color: trendColor,
-              fontSize: isDesktop ? 36 : 30,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.8,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+        Text(
+          price,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            color: trendColor,
+            fontSize: isDesktop ? 32 : 25,
+            height: 1,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.8,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
+        const SizedBox(height: 6),
         _TrendChip(stock: stock, color: trendColor),
       ],
     );
 
-    if (isDesktop) {
-      return Row(
-        children: [
-          _DetailCircleButton(
-            tooltip: '返回自选',
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back_rounded),
+    if (!isDesktop) {
+      final mobilePanel = DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceGlass,
+          borderRadius: BorderRadius.circular(AppRadii.xl),
+          border: Border.all(color: colors.borderSubtle),
+          boxShadow: AppShadows.card(elevated: true),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 11, 14, 13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              identity,
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: Text(
+                      price,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: trendColor,
+                        fontSize: 31,
+                        height: 1,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.9,
+                        fontFeatures: const [
+                          FontFeature.tabularFigures(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  _TrendChip(stock: stock, color: trendColor),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: AppSpacing.md),
+        ),
+      );
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          AppSpacing.md,
+        ),
+        child: mobilePanel,
+      );
+    }
+
+    final content = Row(
+      children: [
+        if (isDesktop) ...[
           Container(
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: colors.brandSoft,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [colors.brand, colors.info],
+              ),
               borderRadius: BorderRadius.circular(AppRadii.md),
+              boxShadow: [
+                BoxShadow(
+                  color: colors.brand.withValues(alpha: 0.24),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
-            child: Icon(Icons.candlestick_chart_rounded, color: colors.brand),
+            child: Icon(Icons.candlestick_chart_rounded, color: colors.onBrand),
           ),
           const SizedBox(width: AppSpacing.sm),
-          Expanded(child: identity),
-          const SizedBox(width: AppSpacing.xl),
-          quote,
         ],
-      );
-    }
+        Expanded(child: identity),
+        SizedBox(width: isDesktop ? AppSpacing.xl : AppSpacing.sm),
+        Flexible(child: quote),
+      ],
+    );
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.md,
+    final panel = DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceGlass,
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        border: Border.all(color: colors.borderSubtle),
+        boxShadow: AppShadows.card(elevated: true),
       ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              _DetailCircleButton(
-                tooltip: '返回自选',
-                onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(child: identity),
-              const SizedBox(width: AppControlSizes.regular),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          quote,
-        ],
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? AppSpacing.md : AppSpacing.sm,
+          vertical: AppSpacing.sm,
+        ),
+        child: content,
       ),
     );
+
+    return panel;
   }
 }
 
@@ -444,8 +620,8 @@ class _TrendChip extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
+          horizontal: AppSpacing.xs,
+          vertical: 4,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -456,16 +632,17 @@ class _TrendChip extends StatelessWidget {
                   : stock.percent! > 0
                       ? Icons.trending_up_rounded
                       : Icons.trending_down_rounded,
-              size: 15,
+              size: 13,
               color: color,
             ),
             const SizedBox(width: AppSpacing.xxs),
             Text(
-              formatSignedPercent(stock.percent),
+              '${_formatSignedChange(stock)}  ${formatSignedPercent(stock.percent)}',
               style: TextStyle(
                 color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                height: 1,
+                fontWeight: FontWeight.w900,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -519,46 +696,34 @@ class _ChartLoading extends StatelessWidget {
   }
 }
 
-class _DetailCircleButton extends StatelessWidget {
-  const _DetailCircleButton({
-    required this.tooltip,
-    required this.onPressed,
-    required this.icon,
-  });
-
-  final String tooltip;
-  final VoidCallback onPressed;
-  final Widget icon;
+class _ChartLiveBadge extends StatelessWidget {
+  const _ChartLiveBadge();
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Tooltip(
-      message: tooltip,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.surfaceGlass,
-          shape: BoxShape.circle,
-          border: Border.all(color: colors.border),
-          boxShadow: AppShadows.control(),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onPressed,
-            child: SizedBox.square(
-              dimension: AppControlSizes.regular,
-              child: IconTheme(
-                data: IconThemeData(
-                  color: colors.textSecondary,
-                  size: 21,
-                ),
-                child: icon,
-              ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.infoSoft,
+        borderRadius: BorderRadius.circular(AppRadii.full),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.circle, size: 6, color: colors.info),
+            const SizedBox(width: 4),
+            Text(
+              '实时 · 5s',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.info,
+                    fontSize: 9.5,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                  ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -591,6 +756,13 @@ class _StatsGrid extends StatelessWidget {
       ('最低', formatPrice(stock.low, type: stock.type, symbol: symbol)),
       ('振幅', amplitude),
       ('量比', stock.volumeRatio?.toStringAsFixed(2) ?? '--'),
+      ('成交额', '$symbol${formatAmount(stock.amount, type: stock.type)}'),
+      (
+        '换手率',
+        stock.turnoverRate == null
+            ? '--'
+            : '${stock.turnoverRate!.toStringAsFixed(2)}%',
+      ),
     ];
 
     return LayoutBuilder(
@@ -605,9 +777,9 @@ class _StatsGrid extends StatelessWidget {
                 color: colors.surfaceRaised,
                 borderRadius: BorderRadius.circular(AppRadii.xl),
                 border: Border.all(color: colors.borderSubtle),
-                boxShadow: AppShadows.card(),
+                boxShadow: AppShadows.card(elevated: true),
               ),
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -617,9 +789,9 @@ class _StatsGrid extends StatelessWidget {
                         child: Text(
                           '行情概览',
                           style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
                                     color: colors.textPrimary,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w900,
                                   ),
                         ),
                       ),
@@ -639,62 +811,8 @@ class _StatsGrid extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: items.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      childAspectRatio: 1.34,
-                      crossAxisSpacing: AppSpacing.xs,
-                      mainAxisSpacing: AppSpacing.xs,
-                    ),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      return DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: colors.surfaceInteractive,
-                          borderRadius: BorderRadius.circular(AppRadii.md),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.xs),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                item.$1,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      color: colors.textTertiary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                              const SizedBox(height: AppSpacing.xxs),
-                              Text(
-                                item.$2,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                  color: colors.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  _OverviewMetricTable(items: items),
                 ],
               ),
             ),
@@ -718,6 +836,91 @@ class _StatsGrid extends StatelessWidget {
         stock: stock,
         symbol: symbol,
         amplitude: amplitude,
+      ),
+    );
+  }
+}
+
+class _OverviewMetricTable extends StatelessWidget {
+  const _OverviewMetricTable({required this.items});
+
+  final List<(String, String)> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceInteractive.withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
+      child: Column(
+        children: [
+          for (var row = 0; row < 2; row++) ...[
+            if (row > 0) Divider(height: 1, color: colors.borderSubtle),
+            Row(
+              children: [
+                for (var column = 0; column < 4; column++)
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: column == 3
+                            ? null
+                            : Border(
+                                right: BorderSide(color: colors.borderSubtle),
+                              ),
+                      ),
+                      child: _OverviewMetricCell(item: items[row * 4 + column]),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewMetricCell extends StatelessWidget {
+  const _OverviewMetricCell({required this.item});
+
+  final (String, String) item;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            item.$1,
+            maxLines: 1,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colors.textTertiary,
+                  fontSize: 10.5,
+                  height: 1,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 5),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              item.$2,
+              maxLines: 1,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colors.textPrimary,
+                fontSize: 14,
+                height: 1,
+                fontWeight: FontWeight.w900,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -797,17 +1000,17 @@ class _SessionRangeCard extends StatelessWidget {
                   child: Text(
                     '最低 ${formatPrice(low, type: stock.type, symbol: symbol)}',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: colors.textTertiary,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                      color: colors.textTertiary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
                 Text(
                   '最高 ${formatPrice(high, type: stock.type, symbol: symbol)}',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colors.textTertiary,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                    color: colors.textTertiary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ],
             ),
@@ -829,12 +1032,12 @@ class _SessionRangeCard extends StatelessWidget {
                     Text(
                       row.$2,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: colors.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures(),
-                            ],
-                          ),
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [
+                          FontFeature.tabularFigures(),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -960,84 +1163,101 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
           maxHeight: MediaQuery.sizeOf(context).height * 0.82,
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          stock.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: colors.textPrimary,
-                                  ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          '${stock.code} · ${marketDisplayName(stock)}',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: colors.textTertiary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                        ),
-                      ],
-                    ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      colors.brandSoft.withValues(alpha: 0.72),
+                      colors.surfaceRaised,
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  borderRadius: BorderRadius.circular(AppRadii.lg),
+                  border: Border.all(color: colors.borderSubtle),
+                  boxShadow: AppShadows.card(),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Text(
-                        formatPrice(
-                          stock.price,
-                          type: stock.type,
-                          symbol: symbol,
-                        ),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: trendColor,
-                          fontWeight: FontWeight.w800,
-                          fontFeatures: const [
-                            FontFeature.tabularFigures(),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              stock.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    color: colors.textPrimary,
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.45,
+                                  ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              '${stock.code} · ${marketDisplayName(stock)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: colors.textTertiary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 5),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: trendColor.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
+                      const SizedBox(width: AppSpacing.sm),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            formatPrice(
+                              stock.price,
+                              type: stock.type,
+                              symbol: symbol,
+                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                              color: trendColor,
+                              fontSize: 23,
+                              height: 1,
+                              fontWeight: FontWeight.w900,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
                           ),
-                          child: Text(
-                            formatSignedPercent(stock.percent),
+                          const SizedBox(height: 7),
+                          Text(
+                            '${_formatSignedChange(stock)}  ${formatSignedPercent(stock.percent)}',
                             style: TextStyle(
                               color: trendColor,
                               fontSize: 12,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               FutureBuilder<MarketDepth>(
                 future: _depthFuture,
                 initialData: stock.hasMarketDepth ? stock.marketDepth : null,
@@ -1056,7 +1276,7 @@ class _MetricsSheetState extends ConsumerState<_MetricsSheet> {
               const SizedBox(height: 14),
               for (final section in sections) ...[
                 _MetricSection(section: section),
-                if (section != sections.last) const SizedBox(height: 14),
+                if (section != sections.last) const SizedBox(height: 12),
               ],
               const SizedBox(height: 14),
               Text(
@@ -1410,6 +1630,22 @@ Color _stockTrendColor(Stock stock, AppColors colors) {
   return percent > 0 ? colors.gain : colors.loss;
 }
 
+String _formatSignedChange(Stock stock) {
+  final change = stock.change;
+  if (change == null || change.isNaN) return '--';
+  final sign = change > 0
+      ? '+'
+      : change < 0
+          ? '-'
+          : '';
+  final value = formatPrice(
+    change.abs(),
+    type: stock.type,
+    symbol: currencySymbol(stock),
+  );
+  return '$sign$value';
+}
+
 class _MetricSectionData {
   const _MetricSectionData({
     required this.title,
@@ -1445,74 +1681,100 @@ class _MetricSection extends StatelessWidget {
       children: [
         Text(
           section.title,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: colors.textSecondary,
-                fontWeight: FontWeight.w700,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: colors.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
               ),
         ),
-        const SizedBox(height: 9),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: section.items.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 1.34,
-            crossAxisSpacing: 9,
-            mainAxisSpacing: 9,
+        const SizedBox(height: 8),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceInteractive.withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: colors.borderSubtle),
           ),
-          itemBuilder: (context, index) {
-            final item = section.items[index];
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                color: colors.surfaceInteractive,
-                borderRadius: BorderRadius.circular(AppRadii.md),
-                border: Border.all(color: colors.borderSubtle),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+          child: Column(
+            children: [
+              for (var row = 0;
+                  row < (section.items.length / 2).ceil();
+                  row++) ...[
+                if (row > 0) Divider(height: 1, color: colors.borderSubtle),
+                Row(
                   children: [
-                    Text(
-                      item.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: colors.textTertiary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 5),
-                    SizedBox(
-                      width: double.infinity,
-                      child: Center(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            item.value,
-                            maxLines: 1,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                              color: item.tone ?? colors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                            ),
-                          ),
-                        ),
+                    Expanded(
+                      child: _CompactMetricCell(
+                        item: section.items[row * 2],
                       ),
+                    ),
+                    SizedBox(
+                      height: 38,
+                      child: VerticalDivider(
+                        width: 1,
+                        color: colors.borderSubtle,
+                      ),
+                    ),
+                    Expanded(
+                      child: row * 2 + 1 < section.items.length
+                          ? _CompactMetricCell(
+                              item: section.items[row * 2 + 1],
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ],
                 ),
-              ),
-            );
-          },
+              ],
+            ],
+          ),
         ),
       ],
+    );
+  }
+}
+
+class _CompactMetricCell extends StatelessWidget {
+  const _CompactMetricCell({required this.item});
+
+  final _MetricItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.textTertiary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                item.value,
+                maxLines: 1,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: item.tone ?? colors.textPrimary,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w900,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1528,19 +1790,23 @@ class _ChartTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (final type in ChartType.values) ...[
-          _ChartTabButton(
-            label: type.label,
-            selected: selected == type,
-            onPressed: () => onSelected(type),
-          ),
-          if (type != ChartType.values.last)
-            const SizedBox(width: AppSpacing.xxs),
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (final type in ChartType.values) ...[
+            _ChartTabButton(
+              label: type.label,
+              selected: selected == type,
+              onPressed: () => onSelected(type),
+            ),
+            if (type != ChartType.values.last)
+              const SizedBox(width: AppSpacing.xxs),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

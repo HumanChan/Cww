@@ -21,8 +21,11 @@ class EastMoneyService {
     return switch (prefix) {
       '116' => Market.hk,
       '105' || '106' || '107' => Market.us,
+      '176' => Market.jp,
+      '177' => Market.kr,
+      '178' => Market.tw,
       '0' || '1' => Market.cn,
-      _ => Market.cn,
+      _ => Market.other,
     };
   }
 
@@ -73,18 +76,28 @@ class EastMoneyService {
   Future<List<Stock>> getStockQuotes(List<String> secids) async {
     if (secids.isEmpty) return [];
     const fields =
-        'f12,f14,f2,f3,f4,f15,f16,f17,f18,f6,f5,f8,f9,f23,f20,f115,f114,f10,f31,f32';
-    final response = await _dio.get<dynamic>(
-      'https://push2.eastmoney.com/api/qt/ulist.np/get',
-      queryParameters: {
-        'secids': secids.join(','),
-        'fields': fields,
-        'fltt': 2,
-        'invt': 2,
-      },
-    );
-
-    final root = _asMap(response.data);
+        'f12,f13,f14,f2,f3,f4,f15,f16,f17,f18,f6,f5,f8,f9,f23,f20,f115,f114,f10,f31,f32';
+    final queryParameters = {
+      'secids': secids.join(','),
+      'fields': fields,
+      'fltt': 2,
+      'invt': 2,
+    };
+    Map<String, dynamic> root;
+    try {
+      final response = await _dio.get<dynamic>(
+        'https://push2.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+      if (!_hasQuoteRows(root)) throw StateError('Empty primary quote data');
+    } catch (_) {
+      final response = await _dio.get<dynamic>(
+        'https://push2delay.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+    }
     final data = root['data'];
     if (data is! Map || data['diff'] == null) return [];
     final diff = data['diff'];
@@ -93,9 +106,14 @@ class EastMoneyService {
 
     return rows.whereType<Map>().map((item) {
       final code = item['f12']?.toString() ?? '';
+      final marketId = item['f13']?.toString();
+      final returnedSecid = marketId == null ? null : '$marketId.$code';
       final matchedSecid = secids.firstWhere(
-        (secid) => secid.endsWith('.$code') || secid == code,
-        orElse: () => code,
+        (secid) => secid == returnedSecid,
+        orElse: () => secids.firstWhere(
+          (secid) => secid.endsWith('.$code') || secid == code,
+          orElse: () => code,
+        ),
       );
       return Stock(
         code: code,
@@ -144,17 +162,27 @@ class EastMoneyService {
 
   Future<List<ChartPoint>> getIntradayChart(String secid) async {
     const fields = 'f51,f53,f58,f55';
-    final response = await _dio.get<dynamic>(
-      'https://push2.eastmoney.com/api/qt/stock/trends2/get',
-      queryParameters: {
-        'secid': secid,
-        'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
-        'fields2': fields,
-        'iscr': 0,
-      },
-    );
-
-    final root = _asMap(response.data);
+    final queryParameters = {
+      'secid': secid,
+      'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
+      'fields2': fields,
+      'iscr': 0,
+    };
+    Map<String, dynamic> root;
+    try {
+      final response = await _dio.get<dynamic>(
+        'https://push2.eastmoney.com/api/qt/stock/trends2/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+      if (!_hasTrendRows(root)) throw StateError('Empty primary trend data');
+    } catch (_) {
+      final response = await _dio.get<dynamic>(
+        'https://push2delay.eastmoney.com/api/qt/stock/trends2/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+    }
     final data = root['data'];
     final trends = data is Map ? data['trends'] : null;
     if (trends is! List) return [];
@@ -220,6 +248,20 @@ class EastMoneyService {
         .where((point) => point.close > 0 && point.open > 0)
         .toList();
   }
+}
+
+bool _hasQuoteRows(Map<String, dynamic> root) {
+  final data = root['data'];
+  if (data is! Map) return false;
+  final diff = data['diff'];
+  return diff is List && diff.isNotEmpty || diff is Map && diff.isNotEmpty;
+}
+
+bool _hasTrendRows(Map<String, dynamic> root) {
+  final data = root['data'];
+  return data is Map &&
+      data['trends'] is List &&
+      (data['trends'] as List).isNotEmpty;
 }
 
 Map<String, dynamic> _asMap(Object? data) {

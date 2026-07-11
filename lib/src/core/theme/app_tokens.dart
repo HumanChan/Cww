@@ -60,10 +60,10 @@ class AppColors extends ThemeExtension<AppColors> {
     brandHover: Color(0xFF1D4ED8),
     brandSoft: Color(0xFFE8F0FF),
     onBrand: Color(0xFFFFFFFF),
-    gain: Color(0xFF2563EB),
-    gainSoft: Color(0xFFE8F0FF),
-    loss: Color(0xFFB42318),
-    lossSoft: Color(0xFFFEECEB),
+    gain: Color(0xFFE5484D),
+    gainSoft: Color(0xFFFFEEEE),
+    loss: Color(0xFF079455),
+    lossSoft: Color(0xFFE8F8F0),
     flat: Color(0xFF64748B),
     warning: Color(0xFFD97706),
     warningSoft: Color(0xFFFFF4D6),
@@ -98,10 +98,10 @@ class AppColors extends ThemeExtension<AppColors> {
     brandHover: Color(0xFF93C5FD),
     brandSoft: Color(0xFF172A4D),
     onBrand: Color(0xFF07111F),
-    gain: Color(0xFF60A5FA),
-    gainSoft: Color(0xFF172A4D),
-    loss: Color(0xFFFF8A80),
-    lossSoft: Color(0xFF3A1D22),
+    gain: Color(0xFFFF7479),
+    gainSoft: Color(0xFF3A1D22),
+    loss: Color(0xFF34D399),
+    lossSoft: Color(0xFF12352A),
     flat: Color(0xFF94A3B8),
     warning: Color(0xFFFBBF24),
     warningSoft: Color(0xFF3A2B12),
@@ -387,10 +387,10 @@ class AppShadows {
   static List<BoxShadow> control() {
     return [
       BoxShadow(
-        color: Colors.black.withValues(alpha: 0.05),
-        blurRadius: 6,
-        spreadRadius: -1,
-        offset: const Offset(0, 2),
+        color: Colors.black.withValues(alpha: 0.07),
+        blurRadius: 10,
+        spreadRadius: -2,
+        offset: const Offset(0, 4),
       ),
     ];
   }
@@ -414,10 +414,10 @@ class AppShadows {
   static List<BoxShadow> card({bool elevated = false}) {
     return [
       BoxShadow(
-        color: Colors.black.withValues(alpha: elevated ? 0.10 : 0.05),
-        blurRadius: elevated ? 30 : 20,
-        spreadRadius: -4,
-        offset: Offset(0, elevated ? 8 : 4),
+        color: Colors.black.withValues(alpha: elevated ? 0.13 : 0.075),
+        blurRadius: elevated ? 34 : 24,
+        spreadRadius: elevated ? -7 : -6,
+        offset: Offset(0, elevated ? 12 : 7),
       ),
     ];
   }

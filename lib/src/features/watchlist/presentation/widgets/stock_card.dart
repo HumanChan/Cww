@@ -25,9 +25,13 @@ class StockCard extends StatefulWidget {
 }
 
 class _StockCardState extends State<StockCard> {
+  static const _actionWidth = 72.0;
+
   bool _isHovering = false;
   bool _isPressed = false;
   bool _hasFocus = false;
+  bool _isSliding = false;
+  double _slideOffset = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -56,17 +60,17 @@ class _StockCardState extends State<StockCard> {
             : colors.borderSubtle;
     final symbol = currencySymbol(stock);
 
-    return Semantics(
+    final card = Semantics(
       button: true,
       label:
           '${stock.name}，${formatPrice(stock.price, type: stock.type, symbol: symbol)}，'
-          '${formatSignedPercent(stock.percent)}，点击查看详情',
+          '${formatSignedPercent(stock.percent)}，点击查看详情，左滑可移除',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _isHovering = true),
         onExit: (_) => setState(() => _isHovering = false),
         child: AnimatedScale(
-          scale: _isPressed ? 0.992 : 1,
+          scale: _isPressed ? 0.986 : (_isHovering ? 1.004 : 1),
           duration: AppDurations.fast,
           curve: AppMotionCurves.standard,
           child: AnimatedContainer(
@@ -79,24 +83,19 @@ class _StockCardState extends State<StockCard> {
                 color: borderColor,
                 width: _hasFocus ? 1.5 : 1,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: colors.overlay.withValues(
-                    alpha: _isHovering ? 0.11 : 0.055,
-                  ),
-                  blurRadius: _isHovering ? 26 : 18,
-                  spreadRadius: -10,
-                  offset: Offset(0, _isHovering ? 12 : 7),
-                ),
-              ],
             ),
             child: Material(
               color: Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadii.lg),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
-                onTap: widget.onTap,
-                onLongPress: () => _confirmDelete(context),
+                onTap: () {
+                  if (_slideOffset < -1) {
+                    _closeActions();
+                  } else {
+                    widget.onTap();
+                  }
+                },
                 onHover: (value) {
                   if (_isHovering != value) {
                     setState(() => _isHovering = value);
@@ -117,14 +116,14 @@ class _StockCardState extends State<StockCard> {
                 splashColor: colors.brand.withValues(alpha: 0.08),
                 highlightColor: Colors.transparent,
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.md),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
-                        child: _StockIdentity(
-                          stock: stock,
-                          symbol: symbol,
-                        ),
+                        child: _StockIdentity(stock: stock, symbol: symbol),
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       _StockQuote(
@@ -135,21 +134,9 @@ class _StockCardState extends State<StockCard> {
                         trendSoft: trendSoft,
                       ),
                       const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 88,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            _DeleteButton(
-                              onPressed: () => _confirmDelete(context),
-                            ),
-                            const SizedBox(width: AppSpacing.xs),
-                            ReorderableDragStartListener(
-                              index: widget.reorderIndex,
-                              child: const _DragHandle(),
-                            ),
-                          ],
-                        ),
+                      ReorderableDragStartListener(
+                        index: widget.reorderIndex,
+                        child: const _DragHandle(),
                       ),
                     ],
                   ),
@@ -160,28 +147,159 @@ class _StockCardState extends State<StockCard> {
         ),
       ),
     );
-  }
 
-  Future<void> _confirmDelete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.delete_outline_rounded),
-        title: const Text('移除自选？'),
-        content: Text('将 ${widget.stock.name} 从当前分组中移除。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('移除'),
+    return AnimatedContainer(
+      duration: AppDurations.standard,
+      curve: AppMotionCurves.standard,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        boxShadow: [
+          BoxShadow(
+            color: colors.overlay.withValues(
+              alpha: _isHovering ? 0.15 : 0.085,
+            ),
+            blurRadius: _isHovering ? 30 : 22,
+            spreadRadius: -9,
+            offset: Offset(0, _isHovering ? 13 : 8),
           ),
         ],
       ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragStart: (_) {
+            setState(() => _isSliding = true);
+          },
+          onHorizontalDragUpdate: (details) {
+            setState(() {
+              _slideOffset = (_slideOffset + details.delta.dx)
+                  .clamp(-_actionWidth, 0)
+                  .toDouble();
+            });
+          },
+          onHorizontalDragEnd: (details) {
+            final velocity = details.primaryVelocity ?? 0;
+            final shouldOpen = velocity < -260 ||
+                (velocity <= 260 && _slideOffset.abs() > _actionWidth * 0.42);
+            setState(() {
+              _isSliding = false;
+              _slideOffset = shouldOpen ? -_actionWidth : 0;
+            });
+          },
+          onHorizontalDragCancel: () {
+            setState(() {
+              _isSliding = false;
+              _slideOffset = 0;
+            });
+          },
+          child: Stack(
+            children: [
+              Positioned(
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: _actionWidth,
+                child: _SwipeDeleteAction(onPressed: _handleDelete),
+              ),
+              AnimatedContainer(
+                duration: _isSliding ? Duration.zero : AppDurations.emphasized,
+                curve: Curves.easeOutCubic,
+                transform: Matrix4.translationValues(_slideOffset, 0, 0),
+                child: card,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    if (confirmed == true) widget.onDelete();
+  }
+
+  void _closeActions() {
+    if (_slideOffset == 0) return;
+    setState(() {
+      _isSliding = false;
+      _slideOffset = 0;
+    });
+  }
+
+  Future<void> _handleDelete() async {
+    final confirmed = await _confirmDelete(context);
+    if (!mounted) return;
+    if (confirmed) {
+      widget.onDelete();
+    } else {
+      _closeActions();
+    }
+  }
+
+  Future<bool> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final destructive = _destructiveColor(dialogContext);
+        return AlertDialog(
+          icon: Icon(
+            Icons.delete_forever_rounded,
+            color: destructive,
+          ),
+          title: const Text('确认移除？'),
+          content: Text('将 ${widget.stock.name} 从当前分组中移除，此操作不会删除分组。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: destructive,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('确认移除'),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed == true;
+  }
+}
+
+class _SwipeDeleteAction extends StatelessWidget {
+  const _SwipeDeleteAction({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final destructive = _destructiveColor(context);
+    return Material(
+      color: destructive,
+      child: InkWell(
+        onTap: onPressed,
+        splashColor: Colors.white.withValues(alpha: 0.14),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.white,
+              size: 21,
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              '删除',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -205,22 +323,20 @@ class _StockIdentity extends StatelessWidget {
                 stock.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       color: colors.textPrimary,
+                      fontSize: 18,
+                      height: 1.08,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: -0.2,
+                      letterSpacing: -0.35,
                     ),
               ),
             ),
-            const SizedBox(width: AppSpacing.xs),
+            const SizedBox(width: 6),
             _MarketBadge(text: marketDisplayName(stock)),
-            if (stock.type == StockType.crypto) ...[
-              const SizedBox(width: AppSpacing.xxs),
-              const _MarketBadge(text: '币'),
-            ],
           ],
         ),
-        const SizedBox(height: AppSpacing.xs),
+        const SizedBox(height: 6),
         Text.rich(
           TextSpan(
             children: [
@@ -228,8 +344,9 @@ class _StockIdentity extends StatelessWidget {
                 text: stock.code,
                 style: TextStyle(
                   color: colors.textTertiary,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   fontFamily: 'monospace',
+                  letterSpacing: 0.15,
                 ),
               ),
               TextSpan(
@@ -242,6 +359,8 @@ class _StockIdentity extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: colors.textSecondary,
+            fontSize: 11.5,
+            height: 1.1,
             fontWeight: FontWeight.w600,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
@@ -269,7 +388,7 @@ class _StockQuote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 90),
+      constraints: const BoxConstraints(minWidth: 86),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
@@ -281,22 +400,22 @@ class _StockQuote extends StatelessWidget {
             softWrap: false,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               color: trendColor,
+              fontSize: 19,
+              height: 1.05,
               fontWeight: FontWeight.w900,
-              letterSpacing: -0.3,
+              letterSpacing: -0.4,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          const SizedBox(height: AppSpacing.xxs),
+          const SizedBox(height: 6),
           DecoratedBox(
             decoration: BoxDecoration(
               color: trendSoft,
               borderRadius: BorderRadius.circular(AppRadii.full),
+              border: Border.all(color: trendColor.withValues(alpha: 0.1)),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.xs,
-                vertical: AppSpacing.xxs,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -306,7 +425,7 @@ class _StockQuote extends StatelessWidget {
                       _Trend.loss => Icons.arrow_downward_rounded,
                       _Trend.flat => Icons.remove_rounded,
                     },
-                    size: 13,
+                    size: 12,
                     color: trendColor,
                   ),
                   const SizedBox(width: 2),
@@ -314,6 +433,8 @@ class _StockQuote extends StatelessWidget {
                     formatSignedPercent(stock.percent),
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: trendColor,
+                      fontSize: 10.5,
+                      height: 1,
                       fontWeight: FontWeight.w900,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -323,40 +444,6 @@ class _StockQuote extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DeleteButton extends StatelessWidget {
-  const _DeleteButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Tooltip(
-      message: '移除自选',
-      child: IconButton(
-        onPressed: onPressed,
-        constraints: const BoxConstraints.tightFor(
-          width: AppControlSizes.small,
-          height: AppControlSizes.small,
-        ),
-        padding: EdgeInsets.zero,
-        style: IconButton.styleFrom(
-          foregroundColor: colors.textTertiary,
-          hoverColor: colors.lossSoft,
-          focusColor: colors.lossSoft,
-          highlightColor: colors.lossSoft,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.compact,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadii.sm),
-          ),
-        ),
-        icon: const Icon(Icons.delete_outline_rounded, size: 20),
       ),
     );
   }
@@ -372,18 +459,12 @@ class _DragHandle extends StatelessWidget {
       message: '拖动排序',
       child: MouseRegion(
         cursor: SystemMouseCursors.grab,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.surfaceInteractive,
-            borderRadius: BorderRadius.circular(AppRadii.sm),
-          ),
-          child: SizedBox.square(
-            dimension: AppControlSizes.small,
-            child: Icon(
-              Icons.drag_indicator_rounded,
-              color: colors.textTertiary,
-              size: 21,
-            ),
+        child: SizedBox.square(
+          dimension: AppControlSizes.compact,
+          child: Icon(
+            Icons.drag_indicator_rounded,
+            color: colors.textTertiary.withValues(alpha: 0.72),
+            size: 20,
           ),
         ),
       ),
@@ -402,18 +483,16 @@ class _MarketBadge extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.brandSoft,
-        borderRadius: BorderRadius.circular(AppRadii.xs),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.xs,
-          vertical: 2,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         child: Text(
           text,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: colors.brand,
-                fontSize: 10,
+                fontSize: 9.5,
+                height: 1.1,
                 fontWeight: FontWeight.w900,
               ),
         ),
@@ -427,4 +506,10 @@ enum _Trend { gain, loss, flat }
 _Trend _trendOf(double? percent) {
   if (percent == null || percent == 0) return _Trend.flat;
   return percent > 0 ? _Trend.gain : _Trend.loss;
+}
+
+Color _destructiveColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFFFF7479)
+      : const Color(0xFFE5484D);
 }
