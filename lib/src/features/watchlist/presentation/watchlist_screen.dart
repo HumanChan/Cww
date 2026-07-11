@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../market/domain/stock.dart';
 import '../../market/domain/stock_group.dart';
+import '../../market/domain/market_index_snapshot.dart';
 import '../application/watchlist_controller.dart';
 import 'group_manager_sheet.dart';
 import 'stock_detail_screen.dart';
 import 'widgets/search_panel.dart';
+import 'widgets/market_index_bar.dart';
 import 'widgets/stock_card.dart';
 
 class WatchlistScreen extends ConsumerStatefulWidget {
@@ -19,8 +21,6 @@ class WatchlistScreen extends ConsumerStatefulWidget {
 
 class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
     with WidgetsBindingObserver {
-  final FocusNode _searchFocusNode = FocusNode(debugLabel: 'watchlist-search');
-
   @override
   void initState() {
     super.initState();
@@ -30,7 +30,6 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -75,6 +74,18 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
     final flashingCodes = ref.watch(
       watchlistControllerProvider.select((state) => state.flashingCodes),
     );
+    final indexes = ref.watch(
+      watchlistControllerProvider.select((state) => state.indexes),
+    );
+    final indexMarket = ref.watch(
+      watchlistControllerProvider.select((state) => state.indexMarket),
+    );
+    final isIndexLoading = ref.watch(
+      watchlistControllerProvider.select((state) => state.isIndexLoading),
+    );
+    final indexError = ref.watch(
+      watchlistControllerProvider.select((state) => state.indexError),
+    );
     final activeGroup = _resolveActiveGroup(groups, activeGroupId);
     final controller = ref.read(watchlistControllerProvider.notifier);
 
@@ -92,10 +103,14 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
               error: error,
               lastUpdated: lastUpdated,
               flashingCodes: flashingCodes,
-              searchFocusNode: _searchFocusNode,
+              indexes: indexes,
+              indexMarket: indexMarket,
+              isIndexLoading: isIndexLoading,
+              indexError: indexError,
               onSelectGroup: controller.setActiveGroup,
               onAddGroup: () => _showAddGroupDialog(context, controller),
               onManageGroups: () => _showGroupManager(context),
+              onSearch: () => _showSearch(context),
               onRefresh: controller.refreshNow,
               onToggleTheme: controller.toggleTheme,
               onReorder: controller.reorderStocks,
@@ -141,8 +156,25 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
       context: context,
       isScrollControlled: true,
       showDragHandle: false,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.34),
       builder: (_) => const GroupManagerSheet(),
     );
+  }
+
+  void _showSearch(BuildContext context) {
+    final controller = ref.read(watchlistControllerProvider.notifier);
+    controller.clearSearch();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.34),
+      builder: (_) => const StockSearchSheet(),
+    ).whenComplete(controller.clearSearch);
   }
 
   Future<void> _showAddGroupDialog(
@@ -224,10 +256,14 @@ class _WatchlistViewData {
     required this.error,
     required this.lastUpdated,
     required this.flashingCodes,
-    required this.searchFocusNode,
+    required this.indexes,
+    required this.indexMarket,
+    required this.isIndexLoading,
+    required this.indexError,
     required this.onSelectGroup,
     required this.onAddGroup,
     required this.onManageGroups,
+    required this.onSearch,
     required this.onRefresh,
     required this.onToggleTheme,
     required this.onReorder,
@@ -243,10 +279,14 @@ class _WatchlistViewData {
   final String? error;
   final DateTime? lastUpdated;
   final Set<String> flashingCodes;
-  final FocusNode searchFocusNode;
+  final List<MarketIndexSnapshot> indexes;
+  final Market? indexMarket;
+  final bool isIndexLoading;
+  final String? indexError;
   final ValueChanged<String> onSelectGroup;
   final VoidCallback onAddGroup;
   final VoidCallback onManageGroups;
+  final VoidCallback onSearch;
   final Future<void> Function() onRefresh;
   final VoidCallback onToggleTheme;
   final void Function(int oldIndex, int newIndex) onReorder;
@@ -293,7 +333,12 @@ class _DesktopWatchlistLayout extends StatelessWidget {
                         children: [
                           _WatchlistHeader(data: data, expanded: true),
                           const SizedBox(height: AppSpacing.xl),
-                          SearchPanel(focusNode: data.searchFocusNode),
+                          MarketIndexBar(
+                            market: data.indexMarket,
+                            snapshots: data.indexes,
+                            isLoading: data.isIndexLoading,
+                            error: data.indexError,
+                          ),
                           if (data.error != null) ...[
                             const SizedBox(height: AppSpacing.sm),
                             _InlineError(
@@ -410,48 +455,7 @@ class _BrandLockup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Row(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.brand,
-            borderRadius: BorderRadius.circular(AppRadii.md),
-          ),
-          child: SizedBox.square(
-            dimension: AppControlSizes.large,
-            child: Icon(
-              Icons.show_chart_rounded,
-              color: colors.onBrand,
-              size: 28,
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '墨鱼行情',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-              const SizedBox(height: AppSpacing.xxs),
-              Text(
-                '专注你的市场',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textTertiary,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
+    return const _StorageKingLogo(expanded: true);
   }
 }
 
@@ -504,27 +508,6 @@ class _SidebarGroupItem extends StatelessWidget {
                       ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.xs),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: selected ? colors.surface : colors.surfaceInteractive,
-                  borderRadius: BorderRadius.circular(AppRadii.full),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xs,
-                    vertical: AppSpacing.xxs,
-                  ),
-                  child: Text(
-                    '${group.stocks.length}',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: selected ? colors.brand : colors.textTertiary,
-                      fontWeight: FontWeight.w800,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -553,7 +536,12 @@ class _CompactWatchlistLayout extends StatelessWidget {
             children: [
               _WatchlistHeader(data: data, expanded: false),
               const SizedBox(height: AppSpacing.lg),
-              SearchPanel(focusNode: data.searchFocusNode),
+              MarketIndexBar(
+                market: data.indexMarket,
+                snapshots: data.indexes,
+                isLoading: data.isIndexLoading,
+                error: data.indexError,
+              ),
               const SizedBox(height: AppSpacing.md),
               _GroupTabs(
                 activeGroupId: data.activeGroupId,
@@ -596,35 +584,7 @@ class _WatchlistHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final groupName = data.activeGroup?.name ?? '自选';
-    final stockCount = data.activeGroup?.stocks.length ?? 0;
-    final heading = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '自选行情',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: colors.brand,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
-              ),
-        ),
-        const SizedBox(height: AppSpacing.xxs),
-        Text(
-          groupName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: (expanded
-                  ? Theme.of(context).textTheme.headlineMedium
-                  : Theme.of(context).textTheme.headlineSmall)
-              ?.copyWith(
-            color: colors.textPrimary,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.4,
-          ),
-        ),
-      ],
-    );
+    final heading = _StorageKingLogo(expanded: expanded);
 
     final actions = Row(
       mainAxisSize: MainAxisSize.min,
@@ -635,6 +595,12 @@ class _WatchlistHeader extends StatelessWidget {
           icon: data.isRefreshing ? null : Icons.refresh_rounded,
           isLoading: data.isRefreshing,
           onPressed: data.isRefreshing ? null : data.onRefresh,
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        _HeaderActionButton(
+          tooltip: '搜索添加',
+          icon: Icons.search_rounded,
+          onPressed: data.onSearch,
         ),
         const SizedBox(width: AppSpacing.xs),
         _HeaderActionButton(
@@ -673,13 +639,6 @@ class _WatchlistHeader extends StatelessWidget {
           children: [
             _LiveStatusPill(isRefreshing: data.isRefreshing),
             Text(
-              '$stockCount 个标的',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            Text(
               '上次更新 ${_formatUpdatedAt(data.lastUpdated)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: colors.textTertiary,
@@ -692,6 +651,116 @@ class _WatchlistHeader extends StatelessWidget {
       ],
     );
   }
+}
+
+class _StorageKingLogo extends StatelessWidget {
+  const _StorageKingLogo({required this.expanded});
+
+  final bool expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final markSize = expanded ? 46.0 : 42.0;
+    return Semantics(
+      label: '存为王品牌标识',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: markSize,
+            height: markSize,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [colors.brand, colors.brandHover],
+              ),
+              borderRadius: BorderRadius.circular(markSize * 0.3),
+              boxShadow: [
+                BoxShadow(
+                  color: colors.brand.withValues(alpha: 0.26),
+                  blurRadius: 18,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            child: CustomPaint(
+              painter: const _StorageCrownMarkPainter(),
+            ),
+          ),
+          SizedBox(width: expanded ? AppSpacing.sm : 10),
+          Text(
+            '存为王',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: colors.brand,
+                  fontFamily: 'PingFang SC',
+                  fontFamilyFallback: AppTypographyTokens.fontFamilyFallback,
+                  fontSize: expanded ? 27 : 25,
+                  height: 1,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StorageCrownMarkPainter extends CustomPainter {
+  const _StorageCrownMarkPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.07
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final fill = Paint()..color = Colors.white.withValues(alpha: 0.96);
+
+    final crown = Path()
+      ..moveTo(size.width * 0.2, size.height * 0.42)
+      ..lineTo(size.width * 0.31, size.height * 0.23)
+      ..lineTo(size.width * 0.49, size.height * 0.4)
+      ..lineTo(size.width * 0.68, size.height * 0.2)
+      ..lineTo(size.width * 0.8, size.height * 0.42);
+    canvas.drawPath(crown, stroke);
+
+    final layers = [
+      Rect.fromLTWH(
+        size.width * 0.2,
+        size.height * 0.48,
+        size.width * 0.6,
+        size.height * 0.1,
+      ),
+      Rect.fromLTWH(
+        size.width * 0.25,
+        size.height * 0.64,
+        size.width * 0.5,
+        size.height * 0.1,
+      ),
+    ];
+    for (final layer in layers) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          layer,
+          Radius.circular(size.width * 0.05),
+        ),
+        fill,
+      );
+    }
+    canvas.drawCircle(
+      Offset(size.width * 0.68, size.height * 0.69),
+      size.width * 0.022,
+      Paint()..color = const Color(0xFF2563EB),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _StorageCrownMarkPainter oldDelegate) => false;
 }
 
 class _LiveStatusPill extends StatelessWidget {
@@ -772,45 +841,52 @@ class _HeaderActionButton extends StatelessWidget {
 
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: colors.surface,
-        shape: RoundedRectangleBorder(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppRadii.md),
-          side: BorderSide(color: colors.border),
+          boxShadow: AppShadows.control(),
         ),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          hoverColor: colors.surfaceInteractive,
-          focusColor: colors.brandSoft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: AppControlSizes.regular,
-              minHeight: AppControlSizes.regular,
-            ),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: label == null ? AppSpacing.sm : AppSpacing.md,
+        child: Material(
+          color: colors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            side: BorderSide(color: colors.border),
+          ),
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            hoverColor: colors.surfaceInteractive,
+            focusColor: colors.brandSoft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minWidth: AppControlSizes.regular,
+                minHeight: AppControlSizes.regular,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconTheme(
-                    data: IconThemeData(color: colors.textSecondary),
-                    child: content,
-                  ),
-                  if (label != null) ...[
-                    const SizedBox(width: AppSpacing.xs),
-                    Text(
-                      label!,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: colors.textSecondary,
-                            fontWeight: FontWeight.w800,
-                          ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: label == null ? AppSpacing.sm : AppSpacing.md,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconTheme(
+                      data: IconThemeData(color: colors.textSecondary),
+                      child: content,
                     ),
+                    if (label != null) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      Text(
+                        label!,
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: colors.textSecondary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -840,7 +916,7 @@ class _WatchlistBody extends StatelessWidget {
               child: Padding(
                 padding: padding,
                 child: _EmptyState(
-                  onAdd: () => data.searchFocusNode.requestFocus(),
+                  onAdd: data.onSearch,
                   onImport: data.onManageGroups,
                 ),
               ),
@@ -874,13 +950,25 @@ class _WatchlistBody extends StatelessWidget {
           final stock = activeGroup.stocks[index];
           return Padding(
             key: ValueKey('${activeGroup.id}_${stock.secid}'),
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-            child: StockCard(
-              reorderIndex: index,
-              stock: stock,
-              isFlashing: data.flashingCodes.contains(stock.code),
-              onTap: () => data.onOpenStock(stock),
-              onDelete: () => data.onDelete(stock.code),
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxs),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: Duration(milliseconds: 240 + index.clamp(0, 6) * 25),
+              curve: Curves.easeOutCubic,
+              child: StockCard(
+                reorderIndex: index,
+                stock: stock,
+                isFlashing: data.flashingCodes.contains(stock.code),
+                onTap: () => data.onOpenStock(stock),
+                onDelete: () => data.onDelete(stock.code),
+              ),
+              builder: (context, value, child) => Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 10 * (1 - value)),
+                  child: child,
+                ),
+              ),
             ),
           );
         },
@@ -924,7 +1012,6 @@ class _GroupTabs extends StatelessWidget {
           return _GroupPill(
             selected: group.id == activeGroupId,
             label: group.name,
-            count: group.stocks.length,
             onPressed: () => onSelect(group.id),
           );
         },
@@ -937,13 +1024,11 @@ class _GroupPill extends StatelessWidget {
   const _GroupPill({
     required this.selected,
     required this.label,
-    required this.count,
     required this.onPressed,
   });
 
   final bool selected;
   final String label;
-  final int count;
   final VoidCallback onPressed;
 
   @override
@@ -974,17 +1059,6 @@ class _GroupPill extends StatelessWidget {
                       color: selected ? colors.onBrand : colors.textSecondary,
                       fontWeight: FontWeight.w800,
                     ),
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                '$count',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: selected
-                      ? colors.onBrand.withValues(alpha: 0.78)
-                      : colors.textTertiary,
-                  fontWeight: FontWeight.w800,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
               ),
             ],
           ),
@@ -1262,25 +1336,46 @@ class _SkeletonBar extends StatelessWidget {
 
 Route<void> _stockDetailRoute(Stock stock) {
   return PageRouteBuilder<void>(
-    transitionDuration: AppDurations.route,
-    reverseTransitionDuration: AppDurations.emphasized,
+    transitionDuration: const Duration(milliseconds: 420),
+    reverseTransitionDuration: const Duration(milliseconds: 360),
+    opaque: false,
+    barrierColor: Colors.black.withValues(alpha: 0.08),
     pageBuilder: (context, animation, secondaryAnimation) =>
         StockDetailScreen(stock: stock),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: AppMotionCurves.standard,
-        reverseCurve: Curves.easeInCubic,
-      );
-      return FadeTransition(
-        opacity: Tween<double>(begin: 0.55, end: 1).animate(curved),
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0.08, 0),
-            end: Offset.zero,
-          ).animate(curved),
-          child: child,
-        ),
+      return AnimatedBuilder(
+        animation: animation,
+        child: child,
+        builder: (context, child) {
+          if (animation.status == AnimationStatus.reverse) {
+            final value = Curves.easeInCubic.transform(animation.value);
+            return Opacity(
+              opacity: value.clamp(0.0, 1.0),
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  (1 - value) * MediaQuery.sizeOf(context).height * 1.04,
+                ),
+                child: child,
+              ),
+            );
+          }
+          final value = Curves.easeOutQuart.transform(animation.value);
+          return Opacity(
+            opacity: value,
+            child: Transform.scale(
+              scale: 0.965 + 0.035 * value,
+              alignment: const Alignment(0, 0.12),
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  (1 - value) * MediaQuery.sizeOf(context).height * 0.22,
+                ),
+                child: child,
+              ),
+            ),
+          );
+        },
       );
     },
   );

@@ -16,6 +16,272 @@ class SearchPanel extends ConsumerStatefulWidget {
   ConsumerState<SearchPanel> createState() => _SearchPanelState();
 }
 
+class StockSearchSheet extends ConsumerStatefulWidget {
+  const StockSearchSheet({super.key});
+
+  @override
+  ConsumerState<StockSearchSheet> createState() => _StockSearchSheetState();
+}
+
+class _StockSearchSheetState extends ConsumerState<StockSearchSheet> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode(debugLabel: 'bottom-stock-search');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(watchlistControllerProvider);
+    final colors = context.appColors;
+    final activeCodes =
+        state.activeGroup?.stocks.map((stock) => stock.code).toSet() ??
+            const <String>{};
+    if (_controller.text != state.searchQuery) {
+      _controller.value = TextEditingValue(
+        text: state.searchQuery,
+        selection: TextSelection.collapsed(offset: state.searchQuery.length),
+      );
+    }
+
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.78,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceRaised,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadii.xl),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colors.overlay.withValues(alpha: 0.2),
+                blurRadius: 42,
+                spreadRadius: -16,
+                offset: const Offset(0, -12),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              MediaQuery.viewInsetsOf(context).bottom + AppSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.borderStrong.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(AppRadii.full),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '搜索并添加',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '关闭搜索',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  key: const ValueKey('bottom-search-field'),
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onChanged: ref
+                      .read(watchlistControllerProvider.notifier)
+                      .setSearchQuery,
+                  decoration: InputDecoration(
+                    hintText: '股票、指数、ETF 或加密货币',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: state.isSearching
+                        ? Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: colors.brand,
+                              ),
+                            ),
+                          )
+                        : state.searchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: '清空',
+                                onPressed: () => ref
+                                    .read(watchlistControllerProvider.notifier)
+                                    .clearSearch(),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Expanded(
+                  child: state.searchQuery.trim().isEmpty
+                      ? const _SearchMessage(
+                          icon: Icons.manage_search_rounded,
+                          title: '查找全球行情',
+                          description: '输入名称或代码，添加成功后可以继续搜索下一只。',
+                        )
+                      : _SearchSheetResults(
+                          isSearching: state.isSearching,
+                          results: state.searchResults,
+                          searchError: state.searchError,
+                          activeCodes: activeCodes,
+                          onRetry: () => ref
+                              .read(watchlistControllerProvider.notifier)
+                              .setSearchQuery(_controller.text),
+                          onSelect: _selectResult,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _selectResult(Stock stock, bool alreadyAdded) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    if (alreadyAdded) {
+      messenger.showSnackBar(SnackBar(content: Text('${stock.name} 已在当前分组中')));
+      return;
+    }
+    ref.read(watchlistControllerProvider.notifier).addStock(stock);
+    _controller.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('已将 ${stock.name} 添加到当前分组，可继续搜索'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+class _SearchSheetResults extends StatelessWidget {
+  const _SearchSheetResults({
+    required this.isSearching,
+    required this.results,
+    required this.searchError,
+    required this.activeCodes,
+    required this.onRetry,
+    required this.onSelect,
+  });
+
+  final bool isSearching;
+  final List<Stock> results;
+  final String? searchError;
+  final Set<String> activeCodes;
+  final VoidCallback onRetry;
+  final void Function(Stock stock, bool alreadyAdded) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isSearching) {
+      return const _SearchMessage(
+        icon: Icons.search_rounded,
+        title: '正在搜索',
+        description: '正在从行情源查找匹配标的…',
+        showProgress: true,
+      );
+    }
+    if (searchError != null) {
+      return _SearchMessage(
+        icon: Icons.cloud_off_rounded,
+        title: '搜索暂时不可用',
+        description: searchError!,
+        actionLabel: '重新搜索',
+        onAction: onRetry,
+      );
+    }
+    if (results.isEmpty) {
+      return const _SearchMessage(
+        icon: Icons.search_off_rounded,
+        title: '没有找到匹配结果',
+        description: '换个名称或代码再试试。',
+      );
+    }
+    final colors = context.appColors;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '搜索结果',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ),
+            Text(
+              '${results.length} 条',
+              style: TextStyle(color: colors.textTertiary),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Expanded(
+          child: ListView.separated(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            itemCount: results.length,
+            separatorBuilder: (_, __) => Divider(color: colors.borderSubtle),
+            itemBuilder: (context, index) {
+              final stock = results[index];
+              final added = activeCodes.contains(stock.code);
+              return _SearchResultTile(
+                stock: stock,
+                alreadyAdded: added,
+                onPressed: () => onSelect(stock, added),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SearchPanelState extends ConsumerState<SearchPanel> {
   final TextEditingController _textController = TextEditingController();
   final OverlayPortalController _portalController = OverlayPortalController();
@@ -66,9 +332,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final mode = ref.watch(
-      watchlistControllerProvider.select((state) => state.searchMode),
-    );
     final query = ref.watch(
       watchlistControllerProvider.select((state) => state.searchQuery),
     );
@@ -97,49 +360,18 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
     _synchronizeText(query);
     _scheduleOverlaySync(query.trim().isNotEmpty);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final horizontal = constraints.maxWidth >= AppBreakpoints.medium;
-        final modeSwitcher = _SearchModeSwitcher(
-          selected: mode,
-          onSelected: _selectMode,
-        );
-        final searchField = _buildSearchAnchor(
-          context,
-          mode: mode,
-          query: query,
-          isSearching: isSearching,
-          results: results,
-          searchError: searchError,
-          activeCodes: activeCodes,
-        );
-
-        if (horizontal) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(width: 208, child: modeSwitcher),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(child: searchField),
-            ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            modeSwitcher,
-            const SizedBox(height: AppSpacing.sm),
-            searchField,
-          ],
-        );
-      },
+    return _buildSearchAnchor(
+      context,
+      query: query,
+      isSearching: isSearching,
+      results: results,
+      searchError: searchError,
+      activeCodes: activeCodes,
     );
   }
 
   Widget _buildSearchAnchor(
     BuildContext context, {
-    required SearchMode mode,
     required String query,
     required bool isSearching,
     required List<Stock> results,
@@ -162,7 +394,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                 followerAnchor: Alignment.topLeft,
                 offset: const Offset(0, AppSpacing.xs),
                 child: _SearchResultsOverlay(
-                  mode: mode,
                   query: query,
                   isSearching: isSearching,
                   results: results,
@@ -202,9 +433,7 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
                   if (_textController.text.trim().isNotEmpty) _showOverlay();
                 },
                 decoration: InputDecoration(
-                  hintText: mode == SearchMode.stock
-                      ? '搜索股票、指数或 ETF'
-                      : '搜索加密货币，例如 BTC',
+                  hintText: '搜索股票、指数、ETF 或加密货币',
                   hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: colors.textTertiary,
                         fontWeight: FontWeight.w500,
@@ -290,15 +519,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
     if (unfocus) _focusNode.unfocus();
   }
 
-  void _selectMode(SearchMode mode) {
-    final current = ref.read(watchlistControllerProvider).searchMode;
-    if (current == mode) return;
-    _textController.clear();
-    _hideOverlay();
-    ref.read(watchlistControllerProvider.notifier).toggleSearchMode();
-    _focusNode.requestFocus();
-  }
-
   void _retrySearch() {
     final query = _textController.text;
     if (query.trim().isEmpty) return;
@@ -324,111 +544,6 @@ class _SearchPanelState extends ConsumerState<SearchPanel> {
       SnackBar(
         content: Text('已将 ${stock.name} 添加到当前分组'),
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-}
-
-class _SearchModeSwitcher extends StatelessWidget {
-  const _SearchModeSwitcher({
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final SearchMode selected;
-  final ValueChanged<SearchMode> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surfaceInteractive,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxs),
-        child: Row(
-          children: [
-            Expanded(
-              child: _SearchModeButton(
-                label: '股票',
-                icon: Icons.candlestick_chart_rounded,
-                selected: selected == SearchMode.stock,
-                onPressed: () => onSelected(SearchMode.stock),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.xxs),
-            Expanded(
-              child: _SearchModeButton(
-                label: '加密货币',
-                icon: Icons.currency_bitcoin_rounded,
-                selected: selected == SearchMode.crypto,
-                onPressed: () => onSelected(SearchMode.crypto),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchModeButton extends StatelessWidget {
-  const _SearchModeButton({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Material(
-      color: selected ? colors.surface : Colors.transparent,
-      borderRadius: BorderRadius.circular(AppRadii.sm),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        hoverColor: selected ? colors.surfaceRaised : colors.surfaceInteractive,
-        focusColor: colors.brandSoft,
-        child: SizedBox(
-          height: AppControlSizes.small,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 17,
-                  color: selected ? colors.brand : colors.textTertiary,
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: selected
-                              ? colors.textPrimary
-                              : colors.textSecondary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -478,7 +593,6 @@ class _SearchFieldSuffix extends StatelessWidget {
 
 class _SearchResultsOverlay extends StatelessWidget {
   const _SearchResultsOverlay({
-    required this.mode,
     required this.query,
     required this.isSearching,
     required this.results,
@@ -488,7 +602,6 @@ class _SearchResultsOverlay extends StatelessWidget {
     required this.onSelect,
   });
 
-  final SearchMode mode;
   final String query;
   final bool isSearching;
   final List<Stock> results;
@@ -567,7 +680,7 @@ class _SearchResultsOverlay extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${mode.label}搜索结果',
+                  '搜索结果',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: colors.textPrimary,
                         fontWeight: FontWeight.w800,

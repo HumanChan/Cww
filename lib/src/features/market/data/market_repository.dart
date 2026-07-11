@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/network/http_client.dart';
 import '../domain/chart_models.dart';
+import '../domain/market_index_snapshot.dart';
 import '../domain/stock.dart';
 import '../domain/stock_group.dart';
 import 'binance_service.dart';
@@ -45,6 +46,41 @@ class MarketRepository {
   final BinanceService _binance;
   final YahooFinanceService _yahoo;
   final Map<String, ({DateTime createdAt, ChartData data})> _chartCache = {};
+
+  static const Map<Market, List<Stock>> marketIndexes = {
+    Market.cn: [
+      Stock(code: '000001', name: '上证指数', secid: '1.000001'),
+      Stock(code: '000688', name: '科创50', secid: '1.000688'),
+      Stock(code: '399006', name: '创业板', secid: '0.399006'),
+    ],
+    Market.hk: [
+      Stock(code: 'HSI', name: '恒生指数', secid: '100.HSI', market: Market.hk),
+    ],
+    Market.us: [
+      Stock(code: 'NDX', name: '纳指', secid: '100.NDX', market: Market.us),
+      Stock(code: 'DJIA', name: '道指', secid: '100.DJIA', market: Market.us),
+      Stock(code: 'SPX', name: '标普', secid: '100.SPX', market: Market.us),
+    ],
+    Market.kr: [
+      Stock(code: 'KS11', name: 'KOSPI', secid: '100.KS11', market: Market.kr),
+    ],
+    Market.tw: [
+      Stock(code: 'TWII', name: '台湾加权', secid: '100.TWII', market: Market.tw),
+    ],
+  };
+
+  Future<List<MarketIndexSnapshot>> fetchMarketIndexes(Market market) async {
+    final indexes = marketIndexes[market];
+    if (indexes == null) return const [];
+    final snapshots = await _eastMoney.getIndexSnapshots(indexes);
+    final bySecid = {
+      for (final snapshot in snapshots) snapshot.index.secid: snapshot,
+    };
+    return indexes
+        .map((index) => bySecid[index.secid])
+        .whereType<MarketIndexSnapshot>()
+        .toList();
+  }
 
   List<StockGroup> get defaultGroups => const [
         StockGroup(
@@ -139,19 +175,19 @@ class MarketRepository {
             Stock(
               code: 'AAPL',
               name: 'Apple',
-              secid: 'AAPL',
+              secid: '105.AAPL',
               market: Market.us,
             ),
             Stock(
               code: 'MSFT',
               name: 'Microsoft',
-              secid: 'MSFT',
+              secid: '105.MSFT',
               market: Market.us,
             ),
             Stock(
               code: 'NVDA',
               name: 'NVIDIA',
-              secid: 'NVDA',
+              secid: '105.NVDA',
               market: Market.us,
             ),
           ],
@@ -163,13 +199,13 @@ class MarketRepository {
             Stock(
               code: '005930.KS',
               name: 'Samsung',
-              secid: '005930.KS',
+              secid: '177.005930',
               market: Market.kr,
             ),
             Stock(
               code: '000660.KS',
               name: 'SK Hynix',
-              secid: '000660.KS',
+              secid: '177.000660',
               market: Market.kr,
             ),
           ],
@@ -181,13 +217,13 @@ class MarketRepository {
             Stock(
               code: '2330.TW',
               name: 'TSMC',
-              secid: '2330.TW',
+              secid: '178.2330',
               market: Market.tw,
             ),
             Stock(
               code: '2317.TW',
               name: 'Hon Hai',
-              secid: '2317.TW',
+              secid: '178.2317',
               market: Market.tw,
             ),
           ],
@@ -207,7 +243,16 @@ class MarketRepository {
           .where((group) => group.id.isNotEmpty && group.name.isNotEmpty)
           .toList();
       if (_isLegacyDefaultSeed(groups)) return defaultGroups;
-      return groups.isEmpty ? defaultGroups : groups;
+      if (groups.isEmpty) return defaultGroups;
+
+      final migrated = groups.map(_migrateMarketSecids).toList();
+      final migratedJson = jsonEncode(
+        migrated.map((group) => group.toJson()).toList(),
+      );
+      if (migratedJson != raw) {
+        await prefs.setString(_groupsKey, migratedJson);
+      }
+      return migrated;
     } catch (_) {
       return defaultGroups;
     }
@@ -281,18 +326,18 @@ class MarketRepository {
   Future<List<Stock>> fetchQuotes(List<Stock> stocks) async {
     if (stocks.isEmpty) return [];
 
-    final migrated = await _migrateLegacyUsStocks(stocks);
-    final eastMoneySecids = migrated
+    final eastMoneyStocks = stocks
         .where(
           (stock) => stock.type == StockType.stock && !isYahooStock(stock.code),
         )
-        .map((stock) => stock.secid)
         .toList();
-    final cryptoSymbols = migrated
+    final eastMoneySecids =
+        eastMoneyStocks.expand(_eastMoneySecidsFor).toSet().toList();
+    final cryptoSymbols = stocks
         .where((stock) => stock.type == StockType.crypto)
         .map((stock) => stock.secid)
         .toList();
-    final yahooSymbols = migrated
+    final yahooSymbols = stocks
         .where(
           (stock) => stock.type == StockType.stock && isYahooStock(stock.code),
         )
@@ -304,7 +349,13 @@ class MarketRepository {
       _safeStockList(() => _binance.getCryptoQuotes(cryptoSymbols)),
       _safeStockList(() => _yahoo.fetchQuotes(yahooSymbols)),
     ]);
-    return quoteGroups.expand((quotes) => quotes).toList();
+    return [
+      ...quoteGroups[0].map(
+        (quote) => _matchEastMoneyQuote(quote, eastMoneyStocks),
+      ),
+      ...quoteGroups[1],
+      ...quoteGroups[2],
+    ];
   }
 
   Future<MarketDepth> fetchMarketDepth(Stock stock) async {
@@ -315,7 +366,8 @@ class MarketRepository {
       }
       if (isYahooStock(stock.code)) return stock.marketDepth;
 
-      final depth = await _eastMoney.getMarketDepth(stock.secid);
+      final resolvedSecid = _eastMoneySecidsFor(stock).first;
+      final depth = await _eastMoney.getMarketDepth(resolvedSecid);
       return depth.hasData ? depth : stock.marketDepth;
     } catch (_) {
       return stock.marketDepth;
@@ -327,6 +379,15 @@ class MarketRepository {
     ChartType type, {
     bool forceRefresh = false,
   }) async {
+    var resolvedStock = stock;
+    if (stock.market == Market.kr || stock.market == Market.tw) {
+      resolvedStock = stock.copyWith(secid: _eastMoneySecidsFor(stock).first);
+    } else if (stock.market == Market.us && !stock.secid.contains('.')) {
+      final quotes = await _safeStockList(
+        () => _eastMoney.getStockQuotes(_eastMoneySecidsFor(stock).toList()),
+      );
+      if (quotes.isNotEmpty) resolvedStock = quotes.first;
+    }
     final cacheKey = '${stock.type.name}:${stock.secid}:${type.name}';
     final cached = _chartCache[cacheKey];
     final maxAge = type == ChartType.intraday
@@ -344,12 +405,12 @@ class MarketRepository {
     } else if (type == ChartType.intraday) {
       data = ChartData(
         type: type,
-        intraday: await _eastMoney.getIntradayChart(stock.secid),
+        intraday: await _eastMoney.getIntradayChart(resolvedStock.secid),
       );
     } else {
       data = ChartData(
         type: type,
-        kLine: await _eastMoney.getKLineChart(stock.secid, type),
+        kLine: await _eastMoney.getKLineChart(resolvedStock.secid, type),
       );
     }
     _chartCache[cacheKey] = (createdAt: DateTime.now(), data: data);
@@ -383,39 +444,57 @@ class MarketRepository {
     return groups;
   }
 
-  Future<List<Stock>> _migrateLegacyUsStocks(List<Stock> stocks) async {
-    final legacy = stocks.where((stock) {
-      return stock.type == StockType.stock &&
-          RegExp(r'^[A-Z]+$').hasMatch(stock.code) &&
-          stock.secid == stock.code;
-    }).toList();
-    if (legacy.isEmpty) return stocks;
+  Iterable<String> _eastMoneySecidsFor(Stock stock) {
+    final symbol = _baseSymbol(stock.code);
+    if (stock.market == Market.kr || stock.code.endsWith('.KS')) {
+      return ['177.$symbol'];
+    }
+    if (stock.market == Market.tw || stock.code.endsWith('.TW')) {
+      return ['178.$symbol'];
+    }
+    if (stock.market == Market.us && !stock.secid.contains('.')) {
+      return [
+        '105.${stock.code}',
+        '106.${stock.code}',
+        '107.${stock.code}',
+      ];
+    }
+    return [stock.secid];
+  }
 
-    final migrated = [...stocks];
-    for (final stock in legacy) {
-      try {
-        final matches = await _eastMoney.searchStocks(stock.code);
-        Stock? match;
-        for (final item in matches) {
-          if (item.code == stock.code && item.market == Market.us) {
-            match = item;
-            break;
-          }
-        }
-        if (match == null) continue;
-        final index = migrated.indexWhere((item) => item.code == stock.code);
-        if (index >= 0) {
-          migrated[index] = stock.copyWith(
-            secid: match.secid,
-            market: Market.us,
-            name: match.name,
+  StockGroup _migrateMarketSecids(StockGroup group) {
+    return group.copyWith(
+      stocks: group.stocks.map((stock) {
+        if (stock.market == Market.kr || stock.code.endsWith('.KS')) {
+          return stock.copyWith(
+            secid: '177.${_baseSymbol(stock.code)}',
+            market: Market.kr,
           );
         }
-      } catch (_) {
-        continue;
+        if (stock.market == Market.tw || stock.code.endsWith('.TW')) {
+          return stock.copyWith(
+            secid: '178.${_baseSymbol(stock.code)}',
+            market: Market.tw,
+          );
+        }
+        return stock;
+      }).toList(),
+    );
+  }
+
+  Stock _matchEastMoneyQuote(Stock quote, List<Stock> requestedStocks) {
+    for (final requested in requestedStocks) {
+      final candidates = _eastMoneySecidsFor(requested);
+      if (candidates.contains(quote.secid) ||
+          (_baseSymbol(requested.code) == quote.code &&
+              requested.market == quote.market)) {
+        return quote.copyWith(
+          code: requested.code,
+          market: requested.market,
+        );
       }
     }
-    return migrated;
+    return quote;
   }
 
   Future<List<Stock>> _safeStockList(
@@ -427,4 +506,9 @@ class MarketRepository {
       return [];
     }
   }
+}
+
+String _baseSymbol(String code) {
+  final separator = code.indexOf('.');
+  return separator < 0 ? code : code.substring(0, separator);
 }

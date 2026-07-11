@@ -32,7 +32,9 @@ class YahooFinanceService {
             final symbol = quote['symbol']?.toString() ?? '';
             return Stock(
               code: symbol,
-              name: quote['shortname']?.toString() ?? quote['longname']?.toString() ?? symbol,
+              name: quote['shortname']?.toString() ??
+                  quote['longname']?.toString() ??
+                  symbol,
               secid: symbol,
               market: _marketFromSymbol(symbol, quote['exchange']?.toString()),
             );
@@ -77,13 +79,19 @@ class YahooFinanceService {
 
       final crumbResponse = await _dio.get<String>(
         'https://query1.finance.yahoo.com/v1/test/getcrumb',
-        options: Options(headers: _sessionHeaders(), responseType: ResponseType.plain),
+        options: Options(
+          headers: _sessionHeaders(),
+          responseType: ResponseType.plain,
+        ),
       );
       final crumb = crumbResponse.data?.trim();
       if (crumb != null && crumb.isNotEmpty && !crumb.contains('<')) {
         _crumb = crumb;
       }
-      _cookieHeader = _mergeCookieHeaders(_cookieHeader, _cookieHeaderFrom(crumbResponse.headers));
+      _cookieHeader = _mergeCookieHeaders(
+        _cookieHeader,
+        _cookieHeaderFrom(crumbResponse.headers),
+      );
     } catch (_) {
       _crumb = null;
     }
@@ -102,7 +110,9 @@ Stock _mapYahooQuote(Map quote) {
   final volume = _safeDouble(quote['regularMarketVolume']);
   return Stock(
     code: symbol,
-    name: quote['shortName']?.toString() ?? quote['longName']?.toString() ?? symbol,
+    name: quote['shortName']?.toString() ??
+        quote['longName']?.toString() ??
+        symbol,
     secid: symbol,
     market: _marketFromSymbol(symbol, quote['exchange']?.toString()),
     price: price,
@@ -122,7 +132,9 @@ Stock _mapYahooQuote(Map quote) {
 }
 
 bool isYahooStock(String code) {
-  return RegExp(r'\.(KS|TW|T|HK)$').hasMatch(code);
+  // Korean and Taiwan quotes are available from EastMoney without Yahoo's
+  // cookie/crumb handshake, which browsers cannot complete reliably.
+  return RegExp(r'\.(T|HK)$').hasMatch(code);
 }
 
 Market _marketFromSymbol(String symbol, String? exchange) {

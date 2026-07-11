@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../market/data/market_repository.dart';
+import '../../market/domain/market_index_snapshot.dart';
 import '../../market/domain/stock.dart';
 import '../../market/domain/stock_group.dart';
 
@@ -49,6 +50,10 @@ class WatchlistState {
     this.error,
     this.lastUpdated,
     this.flashingCodes = const {},
+    this.indexes = const [],
+    this.indexMarket,
+    this.isIndexLoading = false,
+    this.indexError,
   });
 
   final List<StockGroup> groups;
@@ -64,6 +69,10 @@ class WatchlistState {
   final String? error;
   final DateTime? lastUpdated;
   final Set<String> flashingCodes;
+  final List<MarketIndexSnapshot> indexes;
+  final Market? indexMarket;
+  final bool isIndexLoading;
+  final String? indexError;
 
   StockGroup? get activeGroup {
     if (groups.isEmpty) return null;
@@ -85,6 +94,10 @@ class WatchlistState {
     Object? error = _notSet,
     DateTime? lastUpdated,
     Set<String>? flashingCodes,
+    List<MarketIndexSnapshot>? indexes,
+    Object? indexMarket = _notSet,
+    bool? isIndexLoading,
+    Object? indexError = _notSet,
   }) {
     return WatchlistState(
       groups: groups ?? this.groups,
@@ -101,6 +114,12 @@ class WatchlistState {
       error: error == _notSet ? this.error : error as String?,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       flashingCodes: flashingCodes ?? this.flashingCodes,
+      indexes: indexes ?? this.indexes,
+      indexMarket:
+          indexMarket == _notSet ? this.indexMarket : indexMarket as Market?,
+      isIndexLoading: isIndexLoading ?? this.isIndexLoading,
+      indexError:
+          indexError == _notSet ? this.indexError : indexError as String?,
     );
   }
 }
@@ -169,6 +188,10 @@ class WatchlistController extends StateNotifier<WatchlistState> {
       activeGroupId: groupId,
       isRefreshing: false,
       error: null,
+      indexes: const [],
+      indexMarket: null,
+      isIndexLoading: false,
+      indexError: null,
     );
     unawaited(_repository.saveActiveGroupId(groupId));
     _scheduleNextPoll(immediate: true);
@@ -183,9 +206,19 @@ class WatchlistController extends StateNotifier<WatchlistState> {
       stocks: const [],
     );
     final groups = [...state.groups, group];
-    state = state.copyWith(groups: groups, activeGroupId: group.id);
+    _refreshGeneration += 1;
+    state = state.copyWith(
+      groups: groups,
+      activeGroupId: group.id,
+      indexes: const [],
+      indexMarket: null,
+      isIndexLoading: false,
+      indexError: null,
+      isRefreshing: false,
+    );
     _persistGroups();
     unawaited(_repository.saveActiveGroupId(group.id));
+    _scheduleNextPoll(immediate: true);
   }
 
   void renameGroup(String groupId, String name) {
@@ -212,9 +245,14 @@ class WatchlistController extends StateNotifier<WatchlistState> {
       groups: groups,
       activeGroupId: activeId,
       isRefreshing: false,
+      indexes: state.activeGroupId == groupId ? const [] : state.indexes,
+      indexMarket: state.activeGroupId == groupId ? null : state.indexMarket,
+      isIndexLoading: false,
+      indexError: null,
     );
     _persistGroups();
     unawaited(_repository.saveActiveGroupId(activeId));
+    if (state.activeGroupId == activeId) _scheduleNextPoll(immediate: true);
   }
 
   void reorderGroups(int oldIndex, int newIndex) {
@@ -233,6 +271,16 @@ class WatchlistController extends StateNotifier<WatchlistState> {
     }
     _replaceActiveStocks([...active.stocks, stock]);
     setSearchQuery('');
+  }
+
+  void clearSearch() {
+    _searchDebounce?.cancel();
+    state = state.copyWith(
+      searchQuery: '',
+      searchResults: const [],
+      isSearching: false,
+      searchError: null,
+    );
   }
 
   void removeStock(String code) {
@@ -309,8 +357,18 @@ class WatchlistController extends StateNotifier<WatchlistState> {
 
   Future<void> _runSearch(String query) async {
     try {
-      final results =
-          await _repository.search(query, state.searchMode.stockType);
+      final resultGroups = await Future.wait<List<Stock>>([
+        _repository.search(query, StockType.stock).catchError((_) => <Stock>[]),
+        _repository
+            .search(query, StockType.crypto)
+            .catchError((_) => <Stock>[]),
+      ]);
+      final seen = <String>{};
+      final results = resultGroups
+          .expand((items) => items)
+          .where((stock) => seen.add('${stock.type.name}:${stock.secid}'))
+          .take(24)
+          .toList();
       if (_isDisposed || query != state.searchQuery) return;
       state = state.copyWith(
         searchResults: results,
@@ -330,21 +388,44 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   Future<void> _refreshQuotes() async {
     if (!state.isLoaded || state.isRefreshing || !_pollingEnabled) return;
     final active = state.activeGroup;
-    if (active == null || active.stocks.isEmpty) {
-      _scheduleNextPoll();
-      return;
-    }
+    if (active == null) return;
 
     final requestGeneration = ++_refreshGeneration;
     final groupId = active.id;
-    state = state.copyWith(isRefreshing: true, error: null);
+    final targetMarket =
+        _indexMarketFor(active.stocks.isEmpty ? null : active.stocks.first);
+    final marketChanged = targetMarket != state.indexMarket;
+    state = state.copyWith(
+      isRefreshing: true,
+      error: null,
+      indexes: marketChanged ? const [] : state.indexes,
+      indexMarket: targetMarket,
+      isIndexLoading: targetMarket != null,
+      indexError: null,
+    );
     try {
-      final quotes = await _repository.fetchQuotes(active.stocks);
-      if (_isDisposed || requestGeneration != _refreshGeneration) return;
-      if (quotes.isEmpty) {
-        throw StateError('行情源未返回有效数据。');
+      await Future.wait([
+        _refreshStocks(groupId, active.stocks, requestGeneration),
+        _refreshIndexes(targetMarket, requestGeneration),
+      ]);
+    } finally {
+      if (requestGeneration == _refreshGeneration) {
+        state = state.copyWith(isRefreshing: false, isIndexLoading: false);
+        _scheduleNextPoll();
       }
+    }
+  }
 
+  Future<void> _refreshStocks(
+    String groupId,
+    List<Stock> stocks,
+    int generation,
+  ) async {
+    if (stocks.isEmpty) return;
+    try {
+      final quotes = await _repository.fetchQuotes(stocks);
+      if (_isDisposed || generation != _refreshGeneration) return;
+      if (quotes.isEmpty) throw StateError('行情源未返回有效数据。');
       final groupIndex =
           state.groups.indexWhere((group) => group.id == groupId);
       if (groupIndex < 0) return;
@@ -361,7 +442,6 @@ class WatchlistController extends StateNotifier<WatchlistState> {
       }).toList();
       _replaceGroupStocks(groupId, updatedStocks, persist: false);
       state = state.copyWith(
-        isRefreshing: false,
         lastUpdated: DateTime.now(),
         flashingCodes: flashCodes,
         error: null,
@@ -372,13 +452,27 @@ class WatchlistController extends StateNotifier<WatchlistState> {
         });
       }
     } catch (_) {
-      if (!_isDisposed && requestGeneration == _refreshGeneration) {
-        state = state.copyWith(isRefreshing: false, error: '行情刷新失败，已保留本地数据。');
+      if (!_isDisposed && generation == _refreshGeneration) {
+        state = state.copyWith(error: '行情刷新失败，已保留本地数据。');
       }
-    } finally {
-      if (requestGeneration == _refreshGeneration) {
-        _scheduleNextPoll();
-      }
+    }
+  }
+
+  Future<void> _refreshIndexes(Market? market, int generation) async {
+    if (market == null) return;
+    try {
+      final indexes = await _repository.fetchMarketIndexes(market);
+      if (_isDisposed || generation != _refreshGeneration) return;
+      if (indexes.isEmpty) throw StateError('指数行情为空');
+      state = state.copyWith(indexes: indexes, indexError: null);
+    } catch (_) {
+      if (_isDisposed || generation != _refreshGeneration) return;
+      state = state.copyWith(
+        indexes: state.indexes
+            .map((snapshot) => snapshot.copyWith(isStale: true))
+            .toList(),
+        indexError: '指数暂未更新',
+      );
     }
   }
 
@@ -386,13 +480,29 @@ class WatchlistController extends StateNotifier<WatchlistState> {
     _pollTimer?.cancel();
     if (!_pollingEnabled || _isDisposed) return;
     _pollTimer =
-        Timer(immediate ? Duration.zero : const Duration(seconds: 1), () {
+        Timer(immediate ? Duration.zero : const Duration(seconds: 5), () {
       unawaited(_refreshQuotes());
     });
   }
 
   void _replaceActiveStocks(List<Stock> stocks, {bool persist = true}) {
+    final activeStocks = state.activeGroup?.stocks;
+    final previousMarket = _indexMarketFor(
+      activeStocks == null || activeStocks.isEmpty ? null : activeStocks.first,
+    );
     _replaceGroupStocks(state.activeGroupId, stocks, persist: persist);
+    final nextMarket = _indexMarketFor(stocks.isEmpty ? null : stocks.first);
+    if (previousMarket != nextMarket) {
+      _refreshGeneration += 1;
+      state = state.copyWith(
+        indexes: const [],
+        indexMarket: nextMarket,
+        isIndexLoading: nextMarket != null,
+        indexError: null,
+        isRefreshing: false,
+      );
+      _scheduleNextPoll(immediate: true);
+    }
   }
 
   void _replaceGroupStocks(
@@ -411,4 +521,17 @@ class WatchlistController extends StateNotifier<WatchlistState> {
   void _persistGroups() {
     unawaited(_repository.saveGroups(state.groups));
   }
+}
+
+Market? _indexMarketFor(Stock? stock) {
+  if (stock == null || stock.type == StockType.crypto) return null;
+  return switch (stock.market) {
+    Market.cn ||
+    Market.hk ||
+    Market.us ||
+    Market.kr ||
+    Market.tw =>
+      stock.market,
+    Market.jp || Market.other => null,
+  };
 }

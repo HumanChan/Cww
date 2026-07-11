@@ -28,6 +28,12 @@ class AppTheme {
     required Brightness brightness,
     required AppColors colors,
   }) {
+    final destructive = brightness == Brightness.light
+        ? const Color(0xFFD92D20)
+        : const Color(0xFFFF7479);
+    final destructiveSoft = brightness == Brightness.light
+        ? const Color(0xFFFFE9E7)
+        : const Color(0xFF3A1D22);
     final seed = brightness == Brightness.light
         ? FlexThemeData.light(
             scheme: FlexScheme.brandBlue,
@@ -54,9 +60,9 @@ class AppTheme {
       onTertiary: colors.textInverse,
       tertiaryContainer: colors.warningSoft,
       onTertiaryContainer: colors.textPrimary,
-      error: colors.loss,
-      onError: colors.textInverse,
-      errorContainer: colors.lossSoft,
+      error: destructive,
+      onError: Colors.white,
+      errorContainer: destructiveSoft,
       onErrorContainer: colors.textPrimary,
       surface: colors.surface,
       onSurface: colors.textPrimary,
@@ -254,10 +260,10 @@ class AppTheme {
           borderSide: BorderSide(color: colors.focusRing, width: 1.5),
         ),
         errorBorder: fieldBorder.copyWith(
-          borderSide: BorderSide(color: colors.loss),
+          borderSide: BorderSide(color: destructive),
         ),
         focusedErrorBorder: fieldBorder.copyWith(
-          borderSide: BorderSide(color: colors.loss, width: 1.5),
+          borderSide: BorderSide(color: destructive, width: 1.5),
         ),
       ),
       cardTheme: CardThemeData(

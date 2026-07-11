@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../domain/chart_models.dart';
+import '../domain/market_index_snapshot.dart';
 import '../domain/stock.dart';
 
 const _eastMoneyQuoteToken = 'fa5fd1943c7b386f172d6893dbfba10b';
@@ -21,8 +22,11 @@ class EastMoneyService {
     return switch (prefix) {
       '116' => Market.hk,
       '105' || '106' || '107' => Market.us,
+      '176' => Market.jp,
+      '177' => Market.kr,
+      '178' => Market.tw,
       '0' || '1' => Market.cn,
-      _ => Market.cn,
+      _ => Market.other,
     };
   }
 
@@ -73,18 +77,28 @@ class EastMoneyService {
   Future<List<Stock>> getStockQuotes(List<String> secids) async {
     if (secids.isEmpty) return [];
     const fields =
-        'f12,f14,f2,f3,f4,f15,f16,f17,f18,f6,f5,f8,f9,f23,f20,f115,f114,f10,f31,f32';
-    final response = await _dio.get<dynamic>(
-      'https://push2.eastmoney.com/api/qt/ulist.np/get',
-      queryParameters: {
-        'secids': secids.join(','),
-        'fields': fields,
-        'fltt': 2,
-        'invt': 2,
-      },
-    );
-
-    final root = _asMap(response.data);
+        'f12,f13,f14,f2,f3,f4,f15,f16,f17,f18,f6,f5,f8,f9,f23,f20,f115,f114,f10,f31,f32';
+    final queryParameters = {
+      'secids': secids.join(','),
+      'fields': fields,
+      'fltt': 2,
+      'invt': 2,
+    };
+    Map<String, dynamic> root;
+    try {
+      final response = await _dio.get<dynamic>(
+        'https://push2.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+      if (!_hasQuoteRows(root)) throw StateError('Empty primary quote data');
+    } catch (_) {
+      final response = await _dio.get<dynamic>(
+        'https://push2delay.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+    }
     final data = root['data'];
     if (data is! Map || data['diff'] == null) return [];
     final diff = data['diff'];
@@ -93,9 +107,14 @@ class EastMoneyService {
 
     return rows.whereType<Map>().map((item) {
       final code = item['f12']?.toString() ?? '';
+      final marketId = item['f13']?.toString();
+      final returnedSecid = marketId == null ? null : '$marketId.$code';
       final matchedSecid = secids.firstWhere(
-        (secid) => secid.endsWith('.$code') || secid == code,
-        orElse: () => code,
+        (secid) => secid == returnedSecid,
+        orElse: () => secids.firstWhere(
+          (secid) => secid.endsWith('.$code') || secid == code,
+          orElse: () => code,
+        ),
       );
       return Stock(
         code: code,
@@ -123,6 +142,91 @@ class EastMoneyService {
     }).toList();
   }
 
+  Future<List<MarketIndexSnapshot>> getIndexSnapshots(
+    List<Stock> indexes,
+  ) async {
+    if (indexes.isEmpty) return [];
+    const fields =
+        'f12,f13,f14,f2,f3,f4,f5,f6,f10,f15,f16,f17,f18,f104,f105,f106,f124';
+    final queryParameters = {
+      'secids': indexes.map((index) => index.secid).join(','),
+      'fields': fields,
+      'fltt': 2,
+      'invt': 2,
+    };
+    Map<String, dynamic> root;
+    try {
+      final response = await _dio.get<dynamic>(
+        'https://push2.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+      if (!_hasQuoteRows(root)) throw StateError('Empty primary index data');
+    } catch (_) {
+      final response = await _dio.get<dynamic>(
+        'https://push2delay.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+    }
+
+    final data = root['data'];
+    if (data is! Map || data['diff'] == null) return [];
+    final diff = data['diff'];
+    final rows =
+        diff is List ? diff : (diff is Map ? diff.values.toList() : const []);
+    final templates = {for (final index in indexes) index.secid: index};
+
+    return rows.whereType<Map>().map((item) {
+      final code = item['f12']?.toString() ?? '';
+      final marketId = item['f13']?.toString();
+      final returnedSecid = marketId == null ? '' : '$marketId.$code';
+      final template = templates[returnedSecid] ??
+          indexes.firstWhere(
+            (index) => index.code == code,
+            orElse: () => Stock(
+              code: code,
+              name: item['f14']?.toString() ?? code,
+              secid: returnedSecid,
+              market: getMarketFromSecid(returnedSecid),
+            ),
+          );
+      final advancing = _safeInt(item['f104']);
+      final declining = _safeInt(item['f105']);
+      final unchanged = _safeInt(item['f106']);
+      final hasBreadth = advancing != null &&
+          declining != null &&
+          unchanged != null &&
+          (advancing > 0 || declining > 0 || unchanged > 0);
+      final updatedSeconds = _safeInt(item['f124']);
+      final index = template.copyWith(
+        name: template.name.isEmpty
+            ? item['f14']?.toString() ?? template.code
+            : template.name,
+        price: _safeDouble(item['f2']),
+        percent: _safeDouble(item['f3']),
+        change: _safeDouble(item['f4']),
+        volume: _safeDouble(item['f5']),
+        amount: _safeDouble(item['f6']),
+        volumeRatio: _safeDouble(item['f10']),
+        high: _safeDouble(item['f15']),
+        low: _safeDouble(item['f16']),
+        open: _safeDouble(item['f17']),
+        preClose: _safeDouble(item['f18']),
+      );
+      return MarketIndexSnapshot(
+        index: index,
+        advancing: hasBreadth ? advancing : null,
+        declining: hasBreadth ? declining : null,
+        unchanged: hasBreadth ? unchanged : null,
+        updatedAt: updatedSeconds == null || updatedSeconds <= 0
+            ? DateTime.now()
+            : DateTime.fromMillisecondsSinceEpoch(updatedSeconds * 1000),
+        isAvailable: index.price != null,
+      );
+    }).toList();
+  }
+
   Future<MarketDepth> getMarketDepth(String secid) async {
     final response = await _dio.get<dynamic>(
       'https://push2.eastmoney.com/api/qt/stock/get',
@@ -144,17 +248,27 @@ class EastMoneyService {
 
   Future<List<ChartPoint>> getIntradayChart(String secid) async {
     const fields = 'f51,f53,f58,f55';
-    final response = await _dio.get<dynamic>(
-      'https://push2.eastmoney.com/api/qt/stock/trends2/get',
-      queryParameters: {
-        'secid': secid,
-        'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
-        'fields2': fields,
-        'iscr': 0,
-      },
-    );
-
-    final root = _asMap(response.data);
+    final queryParameters = {
+      'secid': secid,
+      'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
+      'fields2': fields,
+      'iscr': 0,
+    };
+    Map<String, dynamic> root;
+    try {
+      final response = await _dio.get<dynamic>(
+        'https://push2.eastmoney.com/api/qt/stock/trends2/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+      if (!_hasTrendRows(root)) throw StateError('Empty primary trend data');
+    } catch (_) {
+      final response = await _dio.get<dynamic>(
+        'https://push2delay.eastmoney.com/api/qt/stock/trends2/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+    }
     final data = root['data'];
     final trends = data is Map ? data['trends'] : null;
     if (trends is! List) return [];
@@ -220,6 +334,20 @@ class EastMoneyService {
         .where((point) => point.close > 0 && point.open > 0)
         .toList();
   }
+}
+
+bool _hasQuoteRows(Map<String, dynamic> root) {
+  final data = root['data'];
+  if (data is! Map) return false;
+  final diff = data['diff'];
+  return diff is List && diff.isNotEmpty || diff is Map && diff.isNotEmpty;
+}
+
+bool _hasTrendRows(Map<String, dynamic> root) {
+  final data = root['data'];
+  return data is Map &&
+      data['trends'] is List &&
+      (data['trends'] as List).isNotEmpty;
 }
 
 Map<String, dynamic> _asMap(Object? data) {

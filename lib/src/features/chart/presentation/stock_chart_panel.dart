@@ -119,142 +119,191 @@ class _IntradayLineChart extends StatelessWidget {
         : stock.percent! > 0
             ? colors.gain
             : colors.loss;
+    final session = _tradingSessionFor(stock, points);
+    final sessionPoints = points.where((point) {
+      return session.contains(point.time);
+    }).toList();
+    final chartPoints = sessionPoints.isEmpty ? points : sessionPoints;
     final priceSpots = <FlSpot>[];
     final avgSpots = <FlSpot>[];
-    for (var i = 0; i < points.length; i++) {
-      final point = points[i];
-      priceSpots.add(FlSpot(i.toDouble(), point.price));
+    for (var i = 0; i < chartPoints.length; i++) {
+      final point = chartPoints[i];
+      final x = session.xFor(point.time);
+      priceSpots.add(FlSpot(x, point.price));
       final avg = point.avg;
-      if (avg != null && avg > 0) avgSpots.add(FlSpot(i.toDouble(), avg));
+      if (avg != null && avg > 0) avgSpots.add(FlSpot(x, avg));
     }
 
     final values = [
-      ...points.map((point) => point.price),
-      ...points.map((point) => point.avg).whereType<double>(),
+      ...chartPoints.map((point) => point.price),
+      ...chartPoints.map((point) => point.avg).whereType<double>(),
       if (stock.preClose != null) stock.preClose!,
     ].where((value) => value > 0).toList();
     final (minY, maxY) = _paddedDomain(values, 0.08);
+    final preClose = stock.preClose;
+    final middayBoundary = session.lunchBoundaryX;
 
-    return LineChart(
-      LineChartData(
-        minX: 0,
-        maxX: math.max(1, points.length - 1).toDouble(),
-        minY: minY,
-        maxY: maxY,
-        clipData: const FlClipData.all(),
-        gridData: _gridData(scheme),
-        borderData: FlBorderData(show: false),
-        titlesData: _titlesData(
-          scheme,
-          bottomStartLabel: points.first.time,
-          bottomEndLabel: points.last.time,
-        ),
-        extraLinesData: stock.preClose == null
-            ? const ExtraLinesData()
-            : ExtraLinesData(
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: LineChart(
+            LineChartData(
+              minX: 0,
+              maxX: session.maxX,
+              minY: minY,
+              maxY: maxY,
+              clipData: const FlClipData.all(),
+              gridData: _gridData(scheme),
+              borderData: FlBorderData(show: false),
+              titlesData: _titlesData(
+                scheme,
+                minY: minY,
+                maxY: maxY,
+                bottomStartLabel: session.openLabel,
+                bottomEndLabel: session.closeLabel,
+              ),
+              extraLinesData: ExtraLinesData(
                 horizontalLines: [
-                  HorizontalLine(
-                    y: stock.preClose!,
-                    color: scheme.outlineVariant,
-                    strokeWidth: 1,
-                    dashArray: [5, 5],
-                  ),
+                  if (preClose != null)
+                    HorizontalLine(
+                      y: preClose,
+                      color: colors.flat.withValues(alpha: 0.62),
+                      strokeWidth: 1,
+                      dashArray: [5, 5],
+                      label: HorizontalLineLabel(
+                        show: true,
+                        alignment: Alignment.topRight,
+                        padding: const EdgeInsets.only(right: 4, bottom: 3),
+                        style: TextStyle(
+                          color: colors.textTertiary,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        labelResolver: (_) => '0%',
+                      ),
+                    ),
+                ],
+                verticalLines: [
+                  if (middayBoundary != null)
+                    VerticalLine(
+                      x: middayBoundary,
+                      color: colors.chartAxis.withValues(alpha: 0.48),
+                      strokeWidth: 1,
+                      dashArray: [4, 5],
+                      label: VerticalLineLabel(
+                        show: true,
+                        alignment: Alignment.bottomRight,
+                        padding: const EdgeInsets.only(left: 4, bottom: 3),
+                        style: TextStyle(
+                          color: colors.textTertiary,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        labelResolver: (_) => '午间休市',
+                      ),
+                    ),
                 ],
               ),
-        lineTouchData: LineTouchData(
-          getTouchedSpotIndicator: (barData, spotIndexes) {
-            return spotIndexes.map((index) {
-              return TouchedSpotIndicatorData(
-                FlLine(
-                  color: scheme.outline.withValues(alpha: 0.42),
-                  strokeWidth: 0.9,
-                  dashArray: [4, 4],
-                ),
-                FlDotData(
-                  getDotPainter: (spot, percent, barData, index) {
-                    return FlDotCirclePainter(
-                      radius: 3.4,
-                      color: barData.color ?? trendColor,
-                      strokeWidth: 2,
-                      strokeColor: colors.surface,
+              lineTouchData: LineTouchData(
+                getTouchedSpotIndicator: (barData, spotIndexes) {
+                  return spotIndexes.map((index) {
+                    return TouchedSpotIndicatorData(
+                      FlLine(
+                        color: scheme.outline.withValues(alpha: 0.42),
+                        strokeWidth: 0.9,
+                        dashArray: [4, 4],
+                      ),
+                      FlDotData(
+                        getDotPainter: (spot, percent, barData, index) {
+                          return FlDotCirclePainter(
+                            radius: 3.4,
+                            color: barData.color ?? trendColor,
+                            strokeWidth: 2,
+                            strokeColor: colors.surface,
+                          );
+                        },
+                      ),
                     );
+                  }).toList();
+                },
+                getTouchLineEnd: (barData, spotIndex) => double.infinity,
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipColor: (_) => scheme.inverseSurface,
+                  tooltipBorderRadius: BorderRadius.circular(12),
+                  tooltipPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  maxContentWidth: 156,
+                  fitInsideHorizontally: true,
+                  fitInsideVertically: true,
+                  getTooltipItems: (spots) {
+                    return spots.map((spot) {
+                      final index =
+                          spot.spotIndex.clamp(0, chartPoints.length - 1);
+                      final point = chartPoints[index];
+                      if (spot.barIndex != 0) return null;
+                      final avg = point.avg == null || point.avg! <= 0
+                          ? '--'
+                          : point.avg!.toStringAsFixed(2);
+                      return LineTooltipItem(
+                        '${session.displayTimeFor(point.time)}\n'
+                        '价格 ${point.price.toStringAsFixed(2)}\n'
+                        '均价 $avg\n'
+                        '成交量 ${_compactVolume(point.volume ?? 0)}',
+                        TextStyle(
+                          color: scheme.onInverseSurface,
+                          fontSize: 10.5,
+                          height: 1.32,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        textAlign: TextAlign.left,
+                      );
+                    }).toList();
                   },
                 ),
-              );
-            }).toList();
-          },
-          getTouchLineEnd: (barData, spotIndex) => double.infinity,
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => scheme.inverseSurface,
-            tooltipBorderRadius: BorderRadius.circular(12),
-            tooltipPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 9,
-            ),
-            maxContentWidth: 156,
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            getTooltipItems: (spots) {
-              return spots.map((spot) {
-                final index = spot.x.round().clamp(0, points.length - 1);
-                final point = points[index];
-                if (spot.barIndex != 0) return null;
-                final avg = point.avg == null || point.avg! <= 0
-                    ? '--'
-                    : point.avg!.toStringAsFixed(2);
-                return LineTooltipItem(
-                  '${point.time}\n'
-                  '价格 ${point.price.toStringAsFixed(2)}\n'
-                  '均价 $avg\n'
-                  '成交量 ${_compactVolume(point.volume ?? 0)}',
-                  TextStyle(
-                    color: scheme.onInverseSurface,
-                    fontSize: 10.5,
-                    height: 1.32,
-                    fontWeight: FontWeight.w800,
+              ),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: priceSpots,
+                  color: trendColor,
+                  barWidth: 2.2,
+                  isCurved: true,
+                  curveSmoothness: 0.18,
+                  preventCurveOverShooting: true,
+                  isStrokeCapRound: true,
+                  isStrokeJoinRound: true,
+                  dotData: const FlDotData(show: false),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        trendColor.withValues(alpha: 0.24),
+                        trendColor.withValues(alpha: 0),
+                      ],
+                    ),
                   ),
-                  textAlign: TextAlign.left,
-                );
-              }).toList();
-            },
+                ),
+                if (avgSpots.length > 1)
+                  LineChartBarData(
+                    spots: avgSpots,
+                    color: colors.ma5,
+                    barWidth: 1.4,
+                    isCurved: true,
+                    curveSmoothness: 0.14,
+                    preventCurveOverShooting: true,
+                    dotData: const FlDotData(show: false),
+                  ),
+              ],
+            ),
+            duration: Duration.zero,
           ),
         ),
-        lineBarsData: [
-          LineChartBarData(
-            spots: priceSpots,
-            color: trendColor,
-            barWidth: 2.2,
-            isCurved: true,
-            curveSmoothness: 0.18,
-            preventCurveOverShooting: true,
-            isStrokeCapRound: true,
-            isStrokeJoinRound: true,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  trendColor.withValues(alpha: 0.24),
-                  trendColor.withValues(alpha: 0),
-                ],
-              ),
-            ),
-          ),
-          if (avgSpots.length > 1)
-            LineChartBarData(
-              spots: avgSpots,
-              color: colors.ma5,
-              barWidth: 1.4,
-              isCurved: true,
-              curveSmoothness: 0.14,
-              preventCurveOverShooting: true,
-              dotData: const FlDotData(show: false),
-            ),
-        ],
-      ),
-      duration: Duration.zero,
+        _InlineYAxisLabels(minY: minY, maxY: maxY),
+      ],
     );
   }
 }
@@ -285,6 +334,8 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   late List<_KLinePointWithMa> _enrichedPoints;
   final Set<int> _activePointers = <int>{};
   final Map<int, double> _pointerTravel = <int, double>{};
+  final Map<int, Offset> _pointerPositions = <int, Offset>{};
+  double? _pinchStartDistance;
   DateTime? _lastTapAt;
   Offset? _lastTapPosition;
   int? _touchedIndex;
@@ -382,12 +433,27 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
             onPointerDown: (event) {
               _activePointers.add(event.pointer);
               _pointerTravel[event.pointer] = 0;
+              _pointerPositions[event.pointer] = event.localPosition;
               _dragRemainder = 0;
+              if (_activePointers.length == 2) {
+                _scaleStartVisibleCount = _visibleCount;
+                _pinchStartDistance = _currentPinchDistance();
+              }
             },
             onPointerMove: (event) {
               _pointerTravel[event.pointer] =
                   (_pointerTravel[event.pointer] ?? 0) + event.delta.distance;
-              if (_activePointers.length != 1) return;
+              _pointerPositions[event.pointer] = event.localPosition;
+              if (_activePointers.length > 1) {
+                final startDistance = _pinchStartDistance;
+                final currentDistance = _currentPinchDistance();
+                if (startDistance != null &&
+                    currentDistance != null &&
+                    startDistance > 0) {
+                  _zoomWindow(currentDistance / startDistance, enriched.length);
+                }
+                return;
+              }
               if (event.kind == PointerDeviceKind.mouse &&
                   (event.buttons & kPrimaryMouseButton) == 0) {
                 return;
@@ -397,6 +463,7 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
             onPointerUp: _handlePointerUp,
             onPointerCancel: _handlePointerCancel,
             child: GestureDetector(
+              key: const ValueKey('kline-interaction-surface'),
               behavior: HitTestBehavior.opaque,
               onDoubleTap: _resetWindow,
               onScaleStart: (_) {
@@ -415,6 +482,11 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                     child: Stack(
                       children: [
                         CandlestickChart(
+                          key: ValueKey(
+                            'candles-${visible.length}-'
+                            '${visible.first.point.date}-'
+                            '${visible.last.point.date}',
+                          ),
                           CandlestickChartData(
                             candlestickSpots: candleSpots,
                             minX: 0,
@@ -426,6 +498,8 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                             borderData: FlBorderData(show: false),
                             titlesData: _titlesData(
                               scheme,
+                              minY: minY,
+                              maxY: maxY,
                               bottomStartLabel: visible.first.point.date,
                               bottomEndLabel: visible.last.point.date,
                             ),
@@ -513,6 +587,11 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
                               duration: Duration.zero,
                             ),
                           ),
+                        _InlineYAxisLabels(
+                          minY: minY,
+                          maxY: maxY,
+                          topInset: 20,
+                        ),
                         if (maBars.isNotEmpty)
                           Positioned(
                             left: 4,
@@ -672,6 +751,14 @@ class _KLineCandlestickChartState extends State<_KLineCandlestickChart> {
   void _handlePointerCancel(PointerEvent event) {
     _activePointers.remove(event.pointer);
     _pointerTravel.remove(event.pointer);
+    _pointerPositions.remove(event.pointer);
+    if (_activePointers.length < 2) _pinchStartDistance = null;
+  }
+
+  double? _currentPinchDistance() {
+    if (_pointerPositions.length < 2) return null;
+    final positions = _pointerPositions.values.take(2).toList();
+    return (positions[0] - positions[1]).distance;
   }
 
   void _registerTap(Offset position) {
@@ -1023,8 +1110,73 @@ FlGridData _gridData(ColorScheme scheme) {
   );
 }
 
+class _InlineYAxisLabels extends StatelessWidget {
+  const _InlineYAxisLabels({
+    required this.minY,
+    required this.maxY,
+    this.topInset = 4,
+  });
+
+  final double minY;
+  final double maxY;
+  final double topInset;
+
+  @override
+  Widget build(BuildContext context) {
+    final midpoint = (minY + maxY) / 2;
+    return Positioned(
+      left: 4,
+      top: topInset,
+      bottom: 22,
+      child: IgnorePointer(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _InlineAxisLabel(value: maxY),
+            _InlineAxisLabel(value: midpoint),
+            _InlineAxisLabel(value: minY),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineAxisLabel extends StatelessWidget {
+  const _InlineAxisLabel({required this.value});
+
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceGlass.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+        child: Text(
+          value.toStringAsFixed(2),
+          style: TextStyle(
+            color: colors.chartAxis,
+            fontSize: 9,
+            height: 1,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 FlTitlesData _titlesData(
   ColorScheme scheme, {
+  required double minY,
+  required double maxY,
   String? bottomStartLabel,
   String? bottomEndLabel,
 }) {
@@ -1035,16 +1187,8 @@ FlTitlesData _titlesData(
   );
 
   return FlTitlesData(
-    leftTitles: AxisTitles(
-      sideTitles: SideTitles(
-        showTitles: true,
-        reservedSize: 44,
-        maxIncluded: false,
-        minIncluded: false,
-        getTitlesWidget: (value, meta) {
-          return Text(value.toStringAsFixed(2), style: axisTextStyle);
-        },
-      ),
+    leftTitles: const AxisTitles(
+      sideTitles: SideTitles(showTitles: false, reservedSize: 0),
     ),
     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
     rightTitles: const AxisTitles(
@@ -1064,8 +1208,13 @@ FlTitlesData _titlesData(
                   ? bottomEndLabel
                   : null;
           if (label == null || label.isEmpty) return const SizedBox.shrink();
-          return Padding(
-            padding: const EdgeInsets.only(top: 5),
+          return SideTitleWidget(
+            meta: meta,
+            space: 5,
+            fitInside: SideTitleFitInsideData.fromTitleMeta(
+              meta,
+              distanceFromEdge: 2,
+            ),
             child: Text(label, style: axisTextStyle),
           );
         },
@@ -1082,6 +1231,173 @@ FlTitlesData _titlesData(
       ? maxValue.abs() * 0.02 + 1
       : (maxValue - minValue) * factor;
   return (minValue - padding, maxValue + padding);
+}
+
+_TradingSession _tradingSessionFor(Stock stock, List<ChartPoint> points) {
+  return switch (stock.market) {
+    Market.cn => const _TradingSession(
+        openMinutes: 9 * 60 + 30,
+        closeMinutes: 15 * 60,
+        lunchStartMinutes: 11 * 60 + 30,
+        lunchEndMinutes: 13 * 60,
+      ),
+    Market.hk => const _TradingSession(
+        openMinutes: 9 * 60 + 30,
+        closeMinutes: 16 * 60,
+        lunchStartMinutes: 12 * 60,
+        lunchEndMinutes: 13 * 60,
+      ),
+    Market.kr => const _TradingSession(
+        openMinutes: 8 * 60,
+        closeMinutes: 14 * 60 + 30,
+        labelOpenMinutes: 9 * 60,
+        labelCloseMinutes: 15 * 60 + 30,
+      ),
+    Market.tw => const _TradingSession(
+        openMinutes: 9 * 60,
+        closeMinutes: 13 * 60 + 30,
+      ),
+    Market.jp => const _TradingSession(
+        openMinutes: 8 * 60,
+        closeMinutes: 14 * 60 + 30,
+        lunchStartMinutes: 10 * 60 + 30,
+        lunchEndMinutes: 11 * 60 + 30,
+        labelOpenMinutes: 9 * 60,
+        labelCloseMinutes: 15 * 60 + 30,
+      ),
+    Market.us => _usTradingSession(points),
+    Market.other => _rollingSession(points),
+  };
+}
+
+_TradingSession _usTradingSession(List<ChartPoint> points) {
+  final parsed = points
+      .map((point) => _timeToMinutes(point.time))
+      .whereType<int>()
+      .toList();
+  final firstMinutes = parsed.isEmpty ? null : parsed.first;
+  final openMinutes = firstMinutes ?? 21 * 60 + 30;
+  return _TradingSession(
+    openMinutes: openMinutes,
+    closeMinutes: openMinutes + 6 * 60 + 30,
+    labelOpenMinutes: 9 * 60 + 30,
+    labelCloseMinutes: 16 * 60,
+  );
+}
+
+_TradingSession _rollingSession(List<ChartPoint> points) {
+  final parsed = points
+      .map((point) => _timeToMinutes(point.time))
+      .whereType<int>()
+      .toList();
+  if (parsed.isEmpty) {
+    return const _TradingSession(openMinutes: 0, closeMinutes: 1);
+  }
+  final open = parsed.first;
+  var close = parsed.last;
+  if (close < open) close += 24 * 60;
+  return _TradingSession(
+    openMinutes: open,
+    closeMinutes: math.max(open + 1, close),
+  );
+}
+
+class _TradingSession {
+  const _TradingSession({
+    required this.openMinutes,
+    required this.closeMinutes,
+    this.lunchStartMinutes,
+    this.lunchEndMinutes,
+    this.labelOpenMinutes,
+    this.labelCloseMinutes,
+  });
+
+  final int openMinutes;
+  final int closeMinutes;
+  final int? lunchStartMinutes;
+  final int? lunchEndMinutes;
+  final int? labelOpenMinutes;
+  final int? labelCloseMinutes;
+
+  double get maxX {
+    final lunchDuration = lunchStartMinutes != null && lunchEndMinutes != null
+        ? lunchEndMinutes! - lunchStartMinutes!
+        : 0;
+    return math.max(1, closeMinutes - openMinutes - lunchDuration).toDouble();
+  }
+
+  double? get lunchBoundaryX {
+    final lunchStart = lunchStartMinutes;
+    if (lunchStart == null) return null;
+    return (lunchStart - openMinutes).toDouble();
+  }
+
+  String get openLabel => _formatMinutes(labelOpenMinutes ?? openMinutes);
+  String get closeLabel => _formatMinutes(labelCloseMinutes ?? closeMinutes);
+
+  String displayTimeFor(String rawTime) {
+    final minutes = _normalizedMinutes(rawTime);
+    if (minutes == null) return rawTime;
+    final localOffset = (labelOpenMinutes ?? openMinutes) - openMinutes;
+    return _formatMinutes(minutes + localOffset);
+  }
+
+  bool contains(String rawTime) {
+    final minutes = _normalizedMinutes(rawTime);
+    if (minutes == null || minutes < openMinutes || minutes > closeMinutes) {
+      return false;
+    }
+    final lunchStart = lunchStartMinutes;
+    final lunchEnd = lunchEndMinutes;
+    if (lunchStart != null &&
+        lunchEnd != null &&
+        minutes > lunchStart &&
+        minutes < lunchEnd) {
+      return false;
+    }
+    return true;
+  }
+
+  double xFor(String rawTime) {
+    final minutes = _normalizedMinutes(rawTime) ?? openMinutes;
+    final lunchStart = lunchStartMinutes;
+    final lunchEnd = lunchEndMinutes;
+    var x = minutes - openMinutes;
+    if (lunchStart != null && lunchEnd != null) {
+      if (minutes >= lunchEnd) {
+        x -= lunchEnd - lunchStart;
+      } else if (minutes > lunchStart) {
+        x = lunchStart - openMinutes;
+      }
+    }
+    return x.clamp(0, maxX).toDouble();
+  }
+
+  int? _normalizedMinutes(String rawTime) {
+    var minutes = _timeToMinutes(rawTime);
+    if (minutes == null) return null;
+    if (closeMinutes > 24 * 60 && minutes < openMinutes) {
+      minutes += 24 * 60;
+    }
+    return minutes;
+  }
+}
+
+String _formatMinutes(int minutes) {
+  final normalized = minutes % (24 * 60);
+  final hour = normalized ~/ 60;
+  final minute = normalized % 60;
+  return '${hour.toString().padLeft(2, '0')}:'
+      '${minute.toString().padLeft(2, '0')}';
+}
+
+int? _timeToMinutes(String raw) {
+  final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(raw);
+  if (match == null) return null;
+  final hour = int.tryParse(match.group(1)!);
+  final minute = int.tryParse(match.group(2)!);
+  if (hour == null || minute == null) return null;
+  return hour * 60 + minute;
 }
 
 String _compactVolume(double value) {
