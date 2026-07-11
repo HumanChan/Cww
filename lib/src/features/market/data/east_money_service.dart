@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../domain/chart_models.dart';
+import '../domain/market_index_snapshot.dart';
 import '../domain/stock.dart';
 
 const _eastMoneyQuoteToken = 'fa5fd1943c7b386f172d6893dbfba10b';
@@ -137,6 +138,91 @@ class EastMoneyService {
         peStatic: _safeDouble(item['f114']),
         volumeRatio: _safeDouble(item['f10']),
         marketDepth: _bestQuoteDepth(item),
+      );
+    }).toList();
+  }
+
+  Future<List<MarketIndexSnapshot>> getIndexSnapshots(
+    List<Stock> indexes,
+  ) async {
+    if (indexes.isEmpty) return [];
+    const fields =
+        'f12,f13,f14,f2,f3,f4,f5,f6,f10,f15,f16,f17,f18,f104,f105,f106,f124';
+    final queryParameters = {
+      'secids': indexes.map((index) => index.secid).join(','),
+      'fields': fields,
+      'fltt': 2,
+      'invt': 2,
+    };
+    Map<String, dynamic> root;
+    try {
+      final response = await _dio.get<dynamic>(
+        'https://push2.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+      if (!_hasQuoteRows(root)) throw StateError('Empty primary index data');
+    } catch (_) {
+      final response = await _dio.get<dynamic>(
+        'https://push2delay.eastmoney.com/api/qt/ulist.np/get',
+        queryParameters: queryParameters,
+      );
+      root = _asMap(response.data);
+    }
+
+    final data = root['data'];
+    if (data is! Map || data['diff'] == null) return [];
+    final diff = data['diff'];
+    final rows =
+        diff is List ? diff : (diff is Map ? diff.values.toList() : const []);
+    final templates = {for (final index in indexes) index.secid: index};
+
+    return rows.whereType<Map>().map((item) {
+      final code = item['f12']?.toString() ?? '';
+      final marketId = item['f13']?.toString();
+      final returnedSecid = marketId == null ? '' : '$marketId.$code';
+      final template = templates[returnedSecid] ??
+          indexes.firstWhere(
+            (index) => index.code == code,
+            orElse: () => Stock(
+              code: code,
+              name: item['f14']?.toString() ?? code,
+              secid: returnedSecid,
+              market: getMarketFromSecid(returnedSecid),
+            ),
+          );
+      final advancing = _safeInt(item['f104']);
+      final declining = _safeInt(item['f105']);
+      final unchanged = _safeInt(item['f106']);
+      final hasBreadth = advancing != null &&
+          declining != null &&
+          unchanged != null &&
+          (advancing > 0 || declining > 0 || unchanged > 0);
+      final updatedSeconds = _safeInt(item['f124']);
+      final index = template.copyWith(
+        name: template.name.isEmpty
+            ? item['f14']?.toString() ?? template.code
+            : template.name,
+        price: _safeDouble(item['f2']),
+        percent: _safeDouble(item['f3']),
+        change: _safeDouble(item['f4']),
+        volume: _safeDouble(item['f5']),
+        amount: _safeDouble(item['f6']),
+        volumeRatio: _safeDouble(item['f10']),
+        high: _safeDouble(item['f15']),
+        low: _safeDouble(item['f16']),
+        open: _safeDouble(item['f17']),
+        preClose: _safeDouble(item['f18']),
+      );
+      return MarketIndexSnapshot(
+        index: index,
+        advancing: hasBreadth ? advancing : null,
+        declining: hasBreadth ? declining : null,
+        unchanged: hasBreadth ? unchanged : null,
+        updatedAt: updatedSeconds == null || updatedSeconds <= 0
+            ? DateTime.now()
+            : DateTime.fromMillisecondsSinceEpoch(updatedSeconds * 1000),
+        isAvailable: index.price != null,
       );
     }).toList();
   }

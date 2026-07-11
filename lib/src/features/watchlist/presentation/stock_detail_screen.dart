@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,8 @@ import '../../market/data/market_repository.dart';
 import '../../market/domain/chart_models.dart';
 import '../../market/domain/stock.dart';
 import '../application/watchlist_controller.dart';
+
+enum _DismissGestureAxis { none, horizontal, vertical }
 
 class StockDetailScreen extends ConsumerStatefulWidget {
   const StockDetailScreen({
@@ -29,8 +32,14 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   late Future<ChartData> _chartFuture;
   Timer? _chartRefreshTimer;
   bool _chartRefreshInFlight = false;
-  double? _edgeSwipeStartX;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _chartGestureRegionKey = GlobalKey();
+  Offset? _gestureStart;
+  int? _gesturePointer;
+  _DismissGestureAxis _gestureAxis = _DismissGestureAxis.none;
+  bool _edgeSwipeCandidate = false;
   double _edgeSwipeDistance = 0;
+  double _pullDistance = 0;
 
   @override
   void initState() {
@@ -45,6 +54,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   @override
   void dispose() {
     _chartRefreshTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -57,74 +67,59 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
     final trendColor = _stockTrendColor(stock, colors);
     final symbol = currencySymbol(stock);
     final swipeProgress = (_edgeSwipeDistance / 180).clamp(0.0, 1.0);
+    final displayOffset = math.max(_pullDistance * 0.72, swipeProgress * 22);
+    final dismissProgress = (displayOffset / 180).clamp(0.0, 1.0);
+    final isDragging = _gestureAxis != _DismissGestureAxis.none;
 
-    final page = Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (event) {
-        if (event.position.dx > 44) return;
-        setState(() {
-          _edgeSwipeStartX = event.position.dx;
-          _edgeSwipeDistance = 0;
-        });
-      },
-      onPointerMove: (event) {
-        final startX = _edgeSwipeStartX;
-        if (startX == null) return;
-        setState(() {
-          _edgeSwipeDistance =
-              (event.position.dx - startX).clamp(0, 180).toDouble();
-        });
-      },
-      onPointerUp: (_) => _finishEdgeSwipe(),
-      onPointerCancel: (_) => _resetEdgeSwipe(),
+    final page = DecoratedBox(
+      decoration: BoxDecoration(
+        boxShadow: displayOffset <= 0
+            ? const []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: 0.1 + dismissProgress * 0.12,
+                  ),
+                  blurRadius: 28 + dismissProgress * 18,
+                  offset: Offset(0, -10 - dismissProgress * 5),
+                ),
+              ],
+      ),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          boxShadow: _edgeSwipeDistance <= 0
-              ? const []
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.16),
-                    blurRadius: 24,
-                    offset: const Offset(0, -8),
-                  ),
-                ],
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-              colors: [
-                colors.brandSoft.withValues(alpha: 0.46),
-                colors.canvas,
-                colors.canvas,
-              ],
-              stops: const [0, 0.36, 1],
-            ),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [
+              colors.brandSoft.withValues(alpha: 0.46),
+              colors.canvas,
+              colors.canvas,
+            ],
+            stops: const [0, 0.36, 1],
           ),
-          child: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isDesktop =
-                    constraints.maxWidth >= AppBreakpoints.desktop &&
-                        constraints.maxHeight >= 520;
-                return isDesktop
-                    ? _buildDesktopLayout(
-                        context,
-                        stock,
-                        symbol,
-                        trendColor,
-                        constraints,
-                      )
-                    : _buildCompactLayout(
-                        context,
-                        stock,
-                        symbol,
-                        trendColor,
-                        constraints,
-                      );
-              },
-            ),
+        ),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop =
+                  constraints.maxWidth >= AppBreakpoints.desktop &&
+                      constraints.maxHeight >= 520;
+              return isDesktop
+                  ? _buildDesktopLayout(
+                      context,
+                      stock,
+                      symbol,
+                      trendColor,
+                      constraints,
+                    )
+                  : _buildCompactLayout(
+                      context,
+                      stock,
+                      symbol,
+                      trendColor,
+                      constraints,
+                    );
+            },
           ),
         ),
       ),
@@ -132,47 +127,112 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
 
     return Scaffold(
       backgroundColor: colors.surfaceInteractive,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          ColoredBox(color: colors.surfaceInteractive),
-          AnimatedSlide(
-            duration: _edgeSwipeStartX == null
-                ? const Duration(milliseconds: 180)
-                : Duration.zero,
-            curve: Curves.easeOutCubic,
-            offset: Offset(0, swipeProgress * 0.055),
-            child: AnimatedScale(
-              duration: _edgeSwipeStartX == null
-                  ? const Duration(milliseconds: 180)
-                  : Duration.zero,
-              curve: Curves.easeOutCubic,
-              scale: 1 - swipeProgress * 0.035,
-              alignment: Alignment.bottomCenter,
-              child: page,
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _handlePointerDown,
+        onPointerMove: _handlePointerMove,
+        onPointerUp: _handlePointerUp,
+        onPointerCancel: (_) => _resetDismissGesture(),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: colors.surfaceInteractive),
+            AnimatedSlide(
+              key: const ValueKey('detail-page-vertical-slide'),
+              duration: isDragging
+                  ? Duration.zero
+                  : const Duration(milliseconds: 260),
+              curve: Curves.easeOutBack,
+              offset:
+                  Offset(0, displayOffset / MediaQuery.sizeOf(context).height),
+              child: AnimatedOpacity(
+                duration: isDragging
+                    ? Duration.zero
+                    : const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                opacity: 1 - dismissProgress * 0.1,
+                child: page,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  void _finishEdgeSwipe() {
-    final shouldPop = _edgeSwipeStartX != null && _edgeSwipeDistance >= 64;
+  void _handlePointerDown(PointerDownEvent event) {
+    if (_gesturePointer != null) return;
+    if (_isInsideChartGestureRegion(event.position)) return;
+    _gesturePointer = event.pointer;
+    _gestureStart = event.position;
+    _gestureAxis = _DismissGestureAxis.none;
+    _edgeSwipeCandidate = event.position.dx <= 44;
+    _edgeSwipeDistance = 0;
+    _pullDistance = 0;
+  }
+
+  bool _isInsideChartGestureRegion(Offset globalPosition) {
+    final renderObject =
+        _chartGestureRegionKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return false;
+    final localPosition = renderObject.globalToLocal(globalPosition);
+    return (Offset.zero & renderObject.size).contains(localPosition);
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (_gesturePointer != event.pointer || _gestureStart == null) return;
+    final delta = event.position - _gestureStart!;
+    if (_gestureAxis == _DismissGestureAxis.none &&
+        math.max(delta.dx.abs(), delta.dy.abs()) >= 9) {
+      final atTop = !_scrollController.hasClients ||
+          _scrollController.position.pixels <=
+              _scrollController.position.minScrollExtent + 0.5;
+      if (_edgeSwipeCandidate &&
+          delta.dx > 0 &&
+          delta.dx.abs() > delta.dy.abs() * 1.15) {
+        _gestureAxis = _DismissGestureAxis.horizontal;
+      } else if (atTop &&
+          delta.dy > 0 &&
+          delta.dy.abs() > delta.dx.abs() * 1.08) {
+        _gestureAxis = _DismissGestureAxis.vertical;
+      }
+    }
+
+    if (_gestureAxis == _DismissGestureAxis.horizontal) {
+      setState(() {
+        _edgeSwipeDistance = delta.dx.clamp(0, 180).toDouble();
+      });
+    } else if (_gestureAxis == _DismissGestureAxis.vertical) {
+      setState(() {
+        _pullDistance = delta.dy.clamp(0, 240).toDouble();
+      });
+    }
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    if (_gesturePointer != event.pointer) return;
+    final shouldPop = _gestureAxis == _DismissGestureAxis.horizontal &&
+            _edgeSwipeDistance >= 64 ||
+        _gestureAxis == _DismissGestureAxis.vertical && _pullDistance >= 100;
     final navigator = Navigator.of(context);
     if (shouldPop && navigator.canPop()) {
-      _edgeSwipeStartX = null;
+      _gesturePointer = null;
+      _gestureStart = null;
       navigator.pop();
       return;
     }
-    _resetEdgeSwipe();
+    _resetDismissGesture();
   }
 
-  void _resetEdgeSwipe() {
+  void _resetDismissGesture() {
     if (!mounted) return;
     setState(() {
-      _edgeSwipeStartX = null;
+      _gesturePointer = null;
+      _gestureStart = null;
+      _gestureAxis = _DismissGestureAxis.none;
+      _edgeSwipeCandidate = false;
       _edgeSwipeDistance = 0;
+      _pullDistance = 0;
     });
   }
 
@@ -185,6 +245,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   ) {
     final chartHeight = _chartPanelHeight(constraints.maxHeight);
     return SingleChildScrollView(
+      controller: _scrollController,
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       child: ConstrainedBox(
@@ -262,6 +323,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   Widget _buildChartCard(BuildContext context, Stock stock) {
     final colors = context.appColors;
     return DecoratedBox(
+      key: _chartGestureRegionKey,
       decoration: BoxDecoration(
         color: colors.surfaceRaised,
         borderRadius: BorderRadius.circular(AppRadii.xl),
@@ -304,16 +366,6 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                           ],
                         ],
                       ),
-                      if (_chartType != ChartType.intraday) ...[
-                        const SizedBox(height: AppSpacing.xxs),
-                        Text(
-                          '拖拽平移 · 滚轮缩放 · 双击复位',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: colors.textTertiary,
-                                  ),
-                        ),
-                      ],
                     ],
                   );
                   final tabs = _ChartTabs(
@@ -463,16 +515,42 @@ class _DetailHeader extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 5),
-        Text(
-          '${stock.code}  ·  ${marketDisplayName(stock)}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: colors.textTertiary,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                stock.code,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textTertiary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            const SizedBox(width: 7),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.brandSoft,
+                borderRadius: BorderRadius.circular(AppRadii.full),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                child: Text(
+                  marketDisplayName(stock),
+                  style: TextStyle(
+                    color: colors.brand,
+                    fontSize: 9.5,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -499,57 +577,126 @@ class _DetailHeader extends StatelessWidget {
     );
 
     if (!isDesktop) {
-      final mobilePanel = DecoratedBox(
+      final mobilePanel = Container(
         decoration: BoxDecoration(
           color: colors.surfaceGlass,
           borderRadius: BorderRadius.circular(AppRadii.xl),
           border: Border.all(color: colors.borderSubtle),
           boxShadow: AppShadows.card(elevated: true),
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 11, 14, 13),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              identity,
-              const SizedBox(height: AppSpacing.sm),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Flexible(
-                    child: Text(
-                      price,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: trendColor,
-                        fontSize: 31,
-                        height: 1,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.9,
-                        fontFeatures: const [
-                          FontFeature.tabularFigures(),
-                        ],
-                      ),
-                    ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 18,
+              bottom: 18,
+              child: Container(
+                width: 3,
+                decoration: BoxDecoration(
+                  color: trendColor.withValues(alpha: 0.72),
+                  borderRadius: const BorderRadius.horizontal(
+                    right: Radius.circular(AppRadii.full),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  _TrendChip(stock: stock, color: trendColor),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(17, 13, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  identity,
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          price,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineMedium
+                              ?.copyWith(
+                            color: trendColor,
+                            fontSize: 34,
+                            height: 1,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.9,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures(),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      _TrendChip(stock: stock, color: trendColor),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Divider(height: 1, color: colors.borderSubtle),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _HeaderMiniMetric(
+                          label: '昨收',
+                          value: formatPrice(
+                            stock.preClose,
+                            type: stock.type,
+                            symbol: symbol,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: _HeaderMiniMetric(
+                          label: '今开',
+                          value: formatPrice(
+                            stock.open,
+                            type: stock.type,
+                            symbol: symbol,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: _HeaderMiniMetric(
+                          label: '日内区间',
+                          value:
+                              '${formatPrice(stock.low, type: stock.type)}–${formatPrice(stock.high, type: stock.type)}',
+                          alignEnd: true,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
       return Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.md,
-          AppSpacing.sm,
+          AppSpacing.xs,
           AppSpacing.md,
           AppSpacing.md,
         ),
-        child: mobilePanel,
+        child: Column(
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: colors.borderStrong.withValues(alpha: 0.48),
+                borderRadius: BorderRadius.circular(AppRadii.full),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            mobilePanel,
+          ],
+        ),
       );
     }
 
@@ -560,21 +707,11 @@ class _DetailHeader extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [colors.brand, colors.info],
-              ),
+              color: colors.brandSoft,
               borderRadius: BorderRadius.circular(AppRadii.md),
-              boxShadow: [
-                BoxShadow(
-                  color: colors.brand.withValues(alpha: 0.24),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+              border: Border.all(color: colors.brand.withValues(alpha: 0.12)),
             ),
-            child: Icon(Icons.candlestick_chart_rounded, color: colors.onBrand),
+            child: Icon(Icons.candlestick_chart_rounded, color: colors.brand),
           ),
           const SizedBox(width: AppSpacing.sm),
         ],
@@ -601,6 +738,52 @@ class _DetailHeader extends StatelessWidget {
     );
 
     return panel;
+  }
+}
+
+class _HeaderMiniMetric extends StatelessWidget {
+  const _HeaderMiniMetric({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Column(
+      crossAxisAlignment:
+          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: colors.textTertiary,
+            fontSize: 9.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 3),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w900,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 

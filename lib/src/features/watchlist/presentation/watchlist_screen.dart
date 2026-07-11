@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../market/domain/stock.dart';
 import '../../market/domain/stock_group.dart';
+import '../../market/domain/market_index_snapshot.dart';
 import '../application/watchlist_controller.dart';
 import 'group_manager_sheet.dart';
 import 'stock_detail_screen.dart';
 import 'widgets/search_panel.dart';
+import 'widgets/market_index_bar.dart';
 import 'widgets/stock_card.dart';
 
 class WatchlistScreen extends ConsumerStatefulWidget {
@@ -19,8 +21,6 @@ class WatchlistScreen extends ConsumerStatefulWidget {
 
 class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
     with WidgetsBindingObserver {
-  final FocusNode _searchFocusNode = FocusNode(debugLabel: 'watchlist-search');
-
   @override
   void initState() {
     super.initState();
@@ -30,7 +30,6 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -75,6 +74,18 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
     final flashingCodes = ref.watch(
       watchlistControllerProvider.select((state) => state.flashingCodes),
     );
+    final indexes = ref.watch(
+      watchlistControllerProvider.select((state) => state.indexes),
+    );
+    final indexMarket = ref.watch(
+      watchlistControllerProvider.select((state) => state.indexMarket),
+    );
+    final isIndexLoading = ref.watch(
+      watchlistControllerProvider.select((state) => state.isIndexLoading),
+    );
+    final indexError = ref.watch(
+      watchlistControllerProvider.select((state) => state.indexError),
+    );
     final activeGroup = _resolveActiveGroup(groups, activeGroupId);
     final controller = ref.read(watchlistControllerProvider.notifier);
 
@@ -92,10 +103,14 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
               error: error,
               lastUpdated: lastUpdated,
               flashingCodes: flashingCodes,
-              searchFocusNode: _searchFocusNode,
+              indexes: indexes,
+              indexMarket: indexMarket,
+              isIndexLoading: isIndexLoading,
+              indexError: indexError,
               onSelectGroup: controller.setActiveGroup,
               onAddGroup: () => _showAddGroupDialog(context, controller),
               onManageGroups: () => _showGroupManager(context),
+              onSearch: () => _showSearch(context),
               onRefresh: controller.refreshNow,
               onToggleTheme: controller.toggleTheme,
               onReorder: controller.reorderStocks,
@@ -146,6 +161,20 @@ class _WatchlistScreenState extends ConsumerState<WatchlistScreen>
       barrierColor: Colors.black.withValues(alpha: 0.34),
       builder: (_) => const GroupManagerSheet(),
     );
+  }
+
+  void _showSearch(BuildContext context) {
+    final controller = ref.read(watchlistControllerProvider.notifier);
+    controller.clearSearch();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.34),
+      builder: (_) => const StockSearchSheet(),
+    ).whenComplete(controller.clearSearch);
   }
 
   Future<void> _showAddGroupDialog(
@@ -227,10 +256,14 @@ class _WatchlistViewData {
     required this.error,
     required this.lastUpdated,
     required this.flashingCodes,
-    required this.searchFocusNode,
+    required this.indexes,
+    required this.indexMarket,
+    required this.isIndexLoading,
+    required this.indexError,
     required this.onSelectGroup,
     required this.onAddGroup,
     required this.onManageGroups,
+    required this.onSearch,
     required this.onRefresh,
     required this.onToggleTheme,
     required this.onReorder,
@@ -246,10 +279,14 @@ class _WatchlistViewData {
   final String? error;
   final DateTime? lastUpdated;
   final Set<String> flashingCodes;
-  final FocusNode searchFocusNode;
+  final List<MarketIndexSnapshot> indexes;
+  final Market? indexMarket;
+  final bool isIndexLoading;
+  final String? indexError;
   final ValueChanged<String> onSelectGroup;
   final VoidCallback onAddGroup;
   final VoidCallback onManageGroups;
+  final VoidCallback onSearch;
   final Future<void> Function() onRefresh;
   final VoidCallback onToggleTheme;
   final void Function(int oldIndex, int newIndex) onReorder;
@@ -296,7 +333,12 @@ class _DesktopWatchlistLayout extends StatelessWidget {
                         children: [
                           _WatchlistHeader(data: data, expanded: true),
                           const SizedBox(height: AppSpacing.xl),
-                          SearchPanel(focusNode: data.searchFocusNode),
+                          MarketIndexBar(
+                            market: data.indexMarket,
+                            snapshots: data.indexes,
+                            isLoading: data.isIndexLoading,
+                            error: data.indexError,
+                          ),
                           if (data.error != null) ...[
                             const SizedBox(height: AppSpacing.sm),
                             _InlineError(
@@ -494,7 +536,12 @@ class _CompactWatchlistLayout extends StatelessWidget {
             children: [
               _WatchlistHeader(data: data, expanded: false),
               const SizedBox(height: AppSpacing.lg),
-              SearchPanel(focusNode: data.searchFocusNode),
+              MarketIndexBar(
+                market: data.indexMarket,
+                snapshots: data.indexes,
+                isLoading: data.isIndexLoading,
+                error: data.indexError,
+              ),
               const SizedBox(height: AppSpacing.md),
               _GroupTabs(
                 activeGroupId: data.activeGroupId,
@@ -548,6 +595,12 @@ class _WatchlistHeader extends StatelessWidget {
           icon: data.isRefreshing ? null : Icons.refresh_rounded,
           isLoading: data.isRefreshing,
           onPressed: data.isRefreshing ? null : data.onRefresh,
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        _HeaderActionButton(
+          tooltip: '搜索添加',
+          icon: Icons.search_rounded,
+          onPressed: data.onSearch,
         ),
         const SizedBox(width: AppSpacing.xs),
         _HeaderActionButton(
@@ -863,7 +916,7 @@ class _WatchlistBody extends StatelessWidget {
               child: Padding(
                 padding: padding,
                 child: _EmptyState(
-                  onAdd: () => data.searchFocusNode.requestFocus(),
+                  onAdd: data.onSearch,
                   onImport: data.onManageGroups,
                 ),
               ),
@@ -1290,24 +1343,39 @@ Route<void> _stockDetailRoute(Stock stock) {
     pageBuilder: (context, animation, secondaryAnimation) =>
         StockDetailScreen(stock: stock),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutQuart,
-        reverseCurve: Curves.easeInCubic,
-      );
-      return FadeTransition(
-        opacity: Tween<double>(begin: 0, end: 1).animate(curved),
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.965, end: 1).animate(curved),
-          alignment: const Alignment(0, 0.12),
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.22),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          ),
-        ),
+      return AnimatedBuilder(
+        animation: animation,
+        child: child,
+        builder: (context, child) {
+          if (animation.status == AnimationStatus.reverse) {
+            final value = Curves.easeInCubic.transform(animation.value);
+            return Opacity(
+              opacity: value.clamp(0.0, 1.0),
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  (1 - value) * MediaQuery.sizeOf(context).height * 1.04,
+                ),
+                child: child,
+              ),
+            );
+          }
+          final value = Curves.easeOutQuart.transform(animation.value);
+          return Opacity(
+            opacity: value,
+            child: Transform.scale(
+              scale: 0.965 + 0.035 * value,
+              alignment: const Alignment(0, 0.12),
+              child: Transform.translate(
+                offset: Offset(
+                  0,
+                  (1 - value) * MediaQuery.sizeOf(context).height * 0.22,
+                ),
+                child: child,
+              ),
+            ),
+          );
+        },
       );
     },
   );

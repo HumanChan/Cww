@@ -16,6 +16,272 @@ class SearchPanel extends ConsumerStatefulWidget {
   ConsumerState<SearchPanel> createState() => _SearchPanelState();
 }
 
+class StockSearchSheet extends ConsumerStatefulWidget {
+  const StockSearchSheet({super.key});
+
+  @override
+  ConsumerState<StockSearchSheet> createState() => _StockSearchSheetState();
+}
+
+class _StockSearchSheetState extends ConsumerState<StockSearchSheet> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode(debugLabel: 'bottom-stock-search');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(watchlistControllerProvider);
+    final colors = context.appColors;
+    final activeCodes =
+        state.activeGroup?.stocks.map((stock) => stock.code).toSet() ??
+            const <String>{};
+    if (_controller.text != state.searchQuery) {
+      _controller.value = TextEditingValue(
+        text: state.searchQuery,
+        selection: TextSelection.collapsed(offset: state.searchQuery.length),
+      );
+    }
+
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.78,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceRaised,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadii.xl),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colors.overlay.withValues(alpha: 0.2),
+                blurRadius: 42,
+                spreadRadius: -16,
+                offset: const Offset(0, -12),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              MediaQuery.viewInsetsOf(context).bottom + AppSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.borderStrong.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(AppRadii.full),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '搜索并添加',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '关闭搜索',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  key: const ValueKey('bottom-search-field'),
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onChanged: ref
+                      .read(watchlistControllerProvider.notifier)
+                      .setSearchQuery,
+                  decoration: InputDecoration(
+                    hintText: '股票、指数、ETF 或加密货币',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: state.isSearching
+                        ? Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: colors.brand,
+                              ),
+                            ),
+                          )
+                        : state.searchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: '清空',
+                                onPressed: () => ref
+                                    .read(watchlistControllerProvider.notifier)
+                                    .clearSearch(),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Expanded(
+                  child: state.searchQuery.trim().isEmpty
+                      ? const _SearchMessage(
+                          icon: Icons.manage_search_rounded,
+                          title: '查找全球行情',
+                          description: '输入名称或代码，添加成功后可以继续搜索下一只。',
+                        )
+                      : _SearchSheetResults(
+                          isSearching: state.isSearching,
+                          results: state.searchResults,
+                          searchError: state.searchError,
+                          activeCodes: activeCodes,
+                          onRetry: () => ref
+                              .read(watchlistControllerProvider.notifier)
+                              .setSearchQuery(_controller.text),
+                          onSelect: _selectResult,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _selectResult(Stock stock, bool alreadyAdded) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    if (alreadyAdded) {
+      messenger.showSnackBar(SnackBar(content: Text('${stock.name} 已在当前分组中')));
+      return;
+    }
+    ref.read(watchlistControllerProvider.notifier).addStock(stock);
+    _controller.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('已将 ${stock.name} 添加到当前分组，可继续搜索'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+class _SearchSheetResults extends StatelessWidget {
+  const _SearchSheetResults({
+    required this.isSearching,
+    required this.results,
+    required this.searchError,
+    required this.activeCodes,
+    required this.onRetry,
+    required this.onSelect,
+  });
+
+  final bool isSearching;
+  final List<Stock> results;
+  final String? searchError;
+  final Set<String> activeCodes;
+  final VoidCallback onRetry;
+  final void Function(Stock stock, bool alreadyAdded) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isSearching) {
+      return const _SearchMessage(
+        icon: Icons.search_rounded,
+        title: '正在搜索',
+        description: '正在从行情源查找匹配标的…',
+        showProgress: true,
+      );
+    }
+    if (searchError != null) {
+      return _SearchMessage(
+        icon: Icons.cloud_off_rounded,
+        title: '搜索暂时不可用',
+        description: searchError!,
+        actionLabel: '重新搜索',
+        onAction: onRetry,
+      );
+    }
+    if (results.isEmpty) {
+      return const _SearchMessage(
+        icon: Icons.search_off_rounded,
+        title: '没有找到匹配结果',
+        description: '换个名称或代码再试试。',
+      );
+    }
+    final colors = context.appColors;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '搜索结果',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ),
+            Text(
+              '${results.length} 条',
+              style: TextStyle(color: colors.textTertiary),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Expanded(
+          child: ListView.separated(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            itemCount: results.length,
+            separatorBuilder: (_, __) => Divider(color: colors.borderSubtle),
+            itemBuilder: (context, index) {
+              final stock = results[index];
+              final added = activeCodes.contains(stock.code);
+              return _SearchResultTile(
+                stock: stock,
+                alreadyAdded: added,
+                onPressed: () => onSelect(stock, added),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SearchPanelState extends ConsumerState<SearchPanel> {
   final TextEditingController _textController = TextEditingController();
   final OverlayPortalController _portalController = OverlayPortalController();

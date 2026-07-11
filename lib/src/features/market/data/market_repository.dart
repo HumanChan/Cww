@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/network/http_client.dart';
 import '../domain/chart_models.dart';
+import '../domain/market_index_snapshot.dart';
 import '../domain/stock.dart';
 import '../domain/stock_group.dart';
 import 'binance_service.dart';
@@ -45,6 +46,41 @@ class MarketRepository {
   final BinanceService _binance;
   final YahooFinanceService _yahoo;
   final Map<String, ({DateTime createdAt, ChartData data})> _chartCache = {};
+
+  static const Map<Market, List<Stock>> marketIndexes = {
+    Market.cn: [
+      Stock(code: '000001', name: '上证指数', secid: '1.000001'),
+      Stock(code: '000688', name: '科创50', secid: '1.000688'),
+      Stock(code: '399006', name: '创业板', secid: '0.399006'),
+    ],
+    Market.hk: [
+      Stock(code: 'HSI', name: '恒生指数', secid: '100.HSI', market: Market.hk),
+    ],
+    Market.us: [
+      Stock(code: 'NDX', name: '纳指', secid: '100.NDX', market: Market.us),
+      Stock(code: 'DJIA', name: '道指', secid: '100.DJIA', market: Market.us),
+      Stock(code: 'SPX', name: '标普', secid: '100.SPX', market: Market.us),
+    ],
+    Market.kr: [
+      Stock(code: 'KS11', name: 'KOSPI', secid: '100.KS11', market: Market.kr),
+    ],
+    Market.tw: [
+      Stock(code: 'TWII', name: '台湾加权', secid: '100.TWII', market: Market.tw),
+    ],
+  };
+
+  Future<List<MarketIndexSnapshot>> fetchMarketIndexes(Market market) async {
+    final indexes = marketIndexes[market];
+    if (indexes == null) return const [];
+    final snapshots = await _eastMoney.getIndexSnapshots(indexes);
+    final bySecid = {
+      for (final snapshot in snapshots) snapshot.index.secid: snapshot,
+    };
+    return indexes
+        .map((index) => bySecid[index.secid])
+        .whereType<MarketIndexSnapshot>()
+        .toList();
+  }
 
   List<StockGroup> get defaultGroups => const [
         StockGroup(

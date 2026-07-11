@@ -131,6 +131,32 @@ void main() {
     expect(find.text('09:00'), findsOneWidget);
     expect(find.text('15:30'), findsOneWidget);
   });
+
+  testWidgets('价格纵轴只显示顶部中间和底部三档', (tester) async {
+    await _pumpChart(
+      tester,
+      const Stock(
+        code: '600000',
+        name: '浦发银行',
+        secid: '1.600000',
+        market: Market.cn,
+        preClose: 10,
+      ),
+      const [
+        ChartPoint(time: '09:30', price: 10),
+        ChartPoint(time: '11:30', price: 10.5),
+        ChartPoint(time: '15:00', price: 11),
+      ],
+    );
+
+    final priceLabels = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((widget) => widget.data)
+        .whereType<String>()
+        .where((text) => RegExp(r'^\d+\.\d{2}$').hasMatch(text))
+        .toList();
+    expect(priceLabels, hasLength(3));
+  });
 }
 
 Future<void> _pumpChart(

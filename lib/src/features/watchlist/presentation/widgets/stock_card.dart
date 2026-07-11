@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/theme/app_tokens.dart';
 import '../../../../core/utils/formatters.dart';
@@ -25,7 +26,7 @@ class StockCard extends StatefulWidget {
 }
 
 class _StockCardState extends State<StockCard> {
-  static const _actionWidth = 72.0;
+  static const _actionWidth = 70.0;
 
   bool _isHovering = false;
   bool _isPressed = false;
@@ -196,10 +197,10 @@ class _StockCardState extends State<StockCard> {
           child: Stack(
             children: [
               Positioned(
-                top: 0,
-                right: 0,
-                bottom: 0,
-                width: _actionWidth,
+                top: 6,
+                right: 4,
+                bottom: 6,
+                width: _actionWidth - 8,
                 child: _SwipeDeleteAction(onPressed: _handleDelete),
               ),
               AnimatedContainer(
@@ -227,6 +228,7 @@ class _StockCardState extends State<StockCard> {
     final confirmed = await _confirmDelete(context);
     if (!mounted) return;
     if (confirmed) {
+      await HapticFeedback.lightImpact();
       widget.onDelete();
     } else {
       _closeActions();
@@ -238,27 +240,131 @@ class _StockCardState extends State<StockCard> {
       context: context,
       builder: (dialogContext) {
         final destructive = _destructiveColor(dialogContext);
-        return AlertDialog(
-          icon: Icon(
-            Icons.delete_forever_rounded,
-            color: destructive,
-          ),
-          title: const Text('确认移除？'),
-          content: Text('将 ${widget.stock.name} 从当前分组中移除，此操作不会删除分组。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: destructive,
-                foregroundColor: Colors.white,
+        final colors = dialogContext.appColors;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.surfaceRaised,
+                borderRadius: BorderRadius.circular(AppRadii.xl),
+                border: Border.all(color: colors.borderSubtle),
+                boxShadow: [
+                  BoxShadow(
+                    color: colors.overlay.withValues(alpha: 0.22),
+                    blurRadius: 48,
+                    spreadRadius: -14,
+                    offset: const Offset(0, 20),
+                  ),
+                ],
               ),
-              child: const Text('确认移除'),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: destructive.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: SizedBox.square(
+                        dimension: 54,
+                        child: Icon(
+                          Icons.delete_outline_rounded,
+                          color: destructive,
+                          size: 27,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      '从当前分组移除？',
+                      style: Theme.of(dialogContext)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(
+                            color: colors.textPrimary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceInteractive,
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.stock.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Text(
+                            widget.stock.code,
+                            style: TextStyle(
+                              color: colors.textTertiary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      '仅从当前分组移除，不会影响其他分组与分组设置。',
+                      textAlign: TextAlign.center,
+                      style:
+                          Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                                color: colors.textSecondary,
+                                height: 1.45,
+                              ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(false),
+                            child: const Text('取消'),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: destructive,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('确认移除'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
+          ),
         );
       },
     );
@@ -276,8 +382,11 @@ class _SwipeDeleteAction extends StatelessWidget {
     final destructive = _destructiveColor(context);
     return Material(
       color: destructive,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onPressed,
+        borderRadius: BorderRadius.circular(AppRadii.md),
         splashColor: Colors.white.withValues(alpha: 0.14),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
