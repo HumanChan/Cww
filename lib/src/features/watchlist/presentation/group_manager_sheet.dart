@@ -321,7 +321,7 @@ class _GroupManagerSheetState extends ConsumerState<GroupManagerSheet> {
     if (_isImporting) return;
     setState(() => _isImporting = true);
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
         withData: true,
